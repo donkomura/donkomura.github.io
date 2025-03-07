@@ -13,3 +13,4 @@ donkomura の技術ブログ
 [apollo](https://github.com/not-matthias/apollo) を拡張している。
 
 - `comment` は使えない
+- macro は `templates/macros` を使う
