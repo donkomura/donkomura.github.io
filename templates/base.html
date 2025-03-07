@@ -1,0 +1,25 @@
+{% import "apollo/templates/macros/macros.html" as post_macros %}
+{% import "macros/macros.html" as custom_macros %}
+
+<!DOCTYPE html>
+<html lang="en" class="dark light">
+
+{% include "apollo/templates/partials/header.html" %}
+
+<body>
+    <div class="content">
+        {% include "partials/nav.html" %}
+
+        {# Post page is the default #}
+        {% block main_content %}
+            Not found
+        {% endblock main_content %}
+    </div>
+</body>
+
+<footer>
+<span>© 2025 donko. </span>
+::
+<span>Powered by <a href="https://www.getzola.org/">Zola</a>, <a href="https://github.com/not-matthias/apollo">apollo</a></span>
+</footer>
+</html>
