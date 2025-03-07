@@ -2,7 +2,6 @@
 base_url = "https://donkomura.github.io"
 theme = "apollo"
 taxonomies = [
-    { name = "posts", feed = true },
     { name = "tags" },
 ]
 
@@ -24,7 +23,7 @@ socials = [
     { name = "github", url = "https://github.com/donkomura/", icon = "github" },
 ]
 menu = [
-    { name = "posts", url = "posts", weight = 1 },
+    { name = "blog", url = "blog", weight = 1 },
     { name = "about", url = "about", weight = 2 },
 ]
 logo = "icons/icon.svg"
