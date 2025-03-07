@@ -8,7 +8,9 @@ donkomura の技術ブログ
 - Pull Request を作成して `main` ブランチにマージする
     - GitHub Actions で GitHub Pages にデプロイされる
 
-## Templates
+## For developer 
+
+### Templates
 
 [apollo](https://github.com/not-matthias/apollo) を拡張している。
 
