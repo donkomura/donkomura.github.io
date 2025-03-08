@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+        <loc>https://donkomura.github.io/</loc>
+    </url>
+    <url>
+        <loc>https://donkomura.github.io/about/</loc>
+    </url>
+    <url>
+        <loc>https://donkomura.github.io/blog/</loc>
+    </url>
+    <url>
+        <loc>https://donkomura.github.io/blog/first-post/</loc>
+        <lastmod>2025-03-08</lastmod>
+    </url>
+    <url>
+        <loc>https://donkomura.github.io/blog/page/1/</loc>
+    </url>
+    <url>
+        <loc>https://donkomura.github.io/tags/</loc>
+    </url>
+    <url>
+        <loc>https://donkomura.github.io/tags/blog/</loc>
+    </url>
+</urlset>
