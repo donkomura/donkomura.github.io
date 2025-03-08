@@ -1,7 +1,12 @@
 +++
 title = "Blog"
+description = "Donko blog"
 sort_by = "date"
-paginate_by = 7
+template = "blog.html"
+page_template = "post.html"
+insert_anchor_links = "right"
+generate_feeds = true
 
-insert_anchor_links = "heading"
+[extra]
+lang = 'ja'
 +++

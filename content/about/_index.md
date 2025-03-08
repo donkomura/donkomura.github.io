@@ -1,7 +1,17 @@
 +++
-title = "About"
+title = "About me"
+description = "About page of donko"
 path = "about"
-template = "about.html"
+template = "prose.html"
+insert_anchor_links = "none"
+
+[extra]
+lang = 'jp'
+math = false
+mermaid = false
+copy = false
+comment = false
+reaction = false
 +++
 
 こんにちは。donko と申します。アカウント名は donkooo や donkomura であることが多いです。
