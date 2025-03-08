@@ -2,8 +2,24 @@
 title = "Blog を作った"
 slug = "first-post"
 date = 2025-03-08
+
 [taxonomies]
-tags = ["#blog"]
+categories = ["記事"]
+tags = ["blog"]
+
+[extra]
+lang = "jp"
+toc = false
+comment = false
+copy = true
+math = false
+mermaid = false
+outdate_alert = false
+outdate_alert_days = 120
+display_tags = true
+truncate_summary = false
+featured = false
+reaction = false
 +++
 
 先日風邪を引いてしまい、自宅で療養していたわけだが、あまりにもやることがなく暇だったので以前から作ろうと思っていた Blog を作った。
