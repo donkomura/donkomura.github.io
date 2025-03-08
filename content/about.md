@@ -6,7 +6,8 @@ template = "about.html"
 
 こんにちは。donko と申します。アカウント名は donkooo や donkomura であることが多いです。
 
-パブリッククラウドの開発・運用や Web サービスの基盤をみるインフラエンジニアをやっています。
+大学時代はスーパーコンピューターのストレージの研究・開発をやっていました。
+今は Web サービス基盤のインフラエンジニアをやっています。
 
 # Location
 
@@ -15,9 +16,18 @@ Tokyo, Japan
 # Interest
 - Distributed system
 - Database
-- Algolithm and data structure
+    - MySQL
 - Observability
+    - Distributed Tracing
+    - Datadog
+- Container
+    - Kubernetes
 - SRE
+
+# Certificates
+
+- AWS Certified Solutions Architect - Associate
+    - 2023/07 - 2025/06
 
 # Socials
 
