@@ -40,7 +40,7 @@ display_id = true
 display_bio = false
 display_avatar = true
 
-recent = false
+recent = true
 recent_max = 7
 recent_more_text = "more »"
 
