@@ -2,6 +2,7 @@
 title = "Consistent Hashing を Rust で実装する"
 slug = "consistent-hashing-in-rust"
 date = 2025-03-16
+draft = true
 
 [taxonomies]
 categories = ["記事"]
@@ -9,7 +10,6 @@ tags = ["rust", "algorithm", "hash"]
 
 [extra]
 lang = "jp"
-draft = false
 toc = true
 comment = false
 copy = true
