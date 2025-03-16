@@ -9,6 +9,7 @@ tags = ["blog"]
 
 [extra]
 lang = "jp"
+draft = true
 toc = false
 comment = false
 copy = true
