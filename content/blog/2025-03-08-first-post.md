@@ -2,6 +2,7 @@
 title = "Blog を作った"
 slug = "create-blog"
 date = 2025-03-08
+draft = true
 
 [taxonomies]
 categories = ["記事"]
@@ -9,7 +10,6 @@ tags = ["blog"]
 
 [extra]
 lang = "jp"
-draft = true
 toc = false
 comment = false
 copy = true
