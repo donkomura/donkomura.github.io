@@ -46,6 +46,11 @@ Distributed system / Database / Kuberntes / Observability / SRE
 - [X (Twitter) | @donkomura_](https://x.com/donkomura_)
 - [Qiita | @donko_](https://qiita.com/donko_)
 
+# Identity
+
+- https://keybase.io/donkomura
+- GPG key ID: `2DBBD76A9B3043C0`
+
 ---
 
 # 免責事項
