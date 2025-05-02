@@ -48,8 +48,9 @@ Distributed system / Database / Kuberntes / Observability / SRE
 
 # Identity
 
-- https://keybase.io/donkomura
-- GPG key ID: `2DBBD76A9B3043C0`
+- [Keybase](https://keybase.io/donkomura)
+- GPG key
+    - Fingerprint: `040E C9A4 EA65 0C93 8FAD 1B2D 2DBB D76A 9B30 43C0`
 
 ---
 
