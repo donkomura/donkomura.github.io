@@ -122,4 +122,5 @@ Rust コンパイラを触るからそれとも元から興味のあったクラ
 楽しんで！
 
 [^1]: [試しに触った程度でしか書いてない](https://github.com/donkomura?tab=repositories&q=&type=&language=rust&sort=)
+
 [^2]: [HAMA](https://www.nicovideo.jp/user/123621495)
