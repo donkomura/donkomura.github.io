@@ -5,7 +5,7 @@ date = 2025-10-11
 
 [taxonomies]
 categories = ["記事"]
-tags = ["kubernetes", "argocd", "mpi", "homelab"]
+tags = ["kubernetes", "argocd", "homelab"]
 
 [extra]
 lang = "jp"
@@ -22,18 +22,17 @@ featured = false
 reaction = false
 +++
 
-自宅で Kubernetes クラスタを運用していて、最近 [MPI Operator](https://github.com/kubeflow/mpi-operator) などのコンポーネントを ArgoCD で整備した。
-この記事ではその過程と学んだことをまとめる。
+自宅で Kubernetes クラスタを運用していて、最近 [MPI Operator](https://github.com/kubeflow/mpi-operator) などのコンポーネントを ArgoCD で整備したのでまとめてみる。
 
 # 背景
 
 自宅で Kubernetes クラスタを運用している理由はいくつかある。
 - クラウドネイティブな技術を実践的に学びたい
 - 実験的なワークロードを気兼ねなく動かせる環境が欲しい
-- インフラストラクチャをコードで管理する経験を積みたい
+- 作ったり壊したりを気軽にできる計算設備があると嬉しい
 
-これまでは基本的なアプリケーションのデプロイや監視基盤の構築などを行ってきたが、より高度なワークロード、特に分散計算に興味を持つようになった。
-そこで MPI (Message Passing Interface) を使った並列計算を Kubernetes 上で実行できるようにしようと考えた。
+もともとHPC出身なこともあったのと、近年の Kubernetes での AI ワークロードの解像度が低かったので家の資源を活用しつつ実験できる環境を整えようと考えた。
+そこでとりあえず MPI (Message Passing Interface) を使った並列計算を Kubernetes 上で実行できるようにした。
 
 # MPI Operator とは
 
@@ -58,17 +57,13 @@ MPI Operator はこれらを自動化し、Kubernetes のリソースとして�
 [ArgoCD](https://argo-cd.readthedocs.io/) は Kubernetes 向けの宣言的 GitOps 継続的デリバリーツールである。
 Git リポジトリを信頼できる唯一の情報源 (Single Source of Truth) として扱い、リポジトリの状態とクラスタの実際の状態を同期させる。
 
-ArgoCD を使う利点:
-- Git リポジトリで全てのリソースをバージョン管理できる
-- 変更履歴が明確に残る
-- ロールバックが容易
-- クラスタの状態を宣言的に管理できる
-
 ## デプロイの構成
 
-MPI Operator のデプロイには以下のような構成を採用した:
+MPI Operator のデプロイには以下のような構成を採用した。
+ArgoCD Application と Kustomize を組み合わせて管理している:
 
 ```yaml
+# argocd/applications/mpi-operator.yaml
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -77,9 +72,9 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/kubeflow/mpi-operator
-    targetRevision: v0.5.0
-    path: deploy/v2beta1
+    repoURL: git@github.com:donkomura/donkooolab.git
+    targetRevision: main
+    path: argocd/apps/mpi-operator
   destination:
     server: https://kubernetes.default.svc
     namespace: mpi-operator
@@ -89,124 +84,81 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+      - ServerSideApply=true
+      - Replace=true
+      - SkipDryRunOnMissingResource=true
 ```
 
-`syncPolicy.automated` を設定することで、Git リポジトリの変更が自動的にクラスタに反映されるようになる。
-`prune: true` は Git から削除されたリソースをクラスタからも削除し、`selfHeal: true` はクラスタ側で手動で変更されたリソースを Git の状態に戻す。
-
-# 実際の運用
-
-## MPIJob の実行
-
-MPI Operator をデプロイした後、実際に簡単な MPI プログラムを実行してみた。
-以下は "Hello World" を各ノードから出力する例である:
+実際のマニフェストは Kustomize で管理している:
 
 ```yaml
-apiVersion: kubeflow.org/v2beta1
-kind: MPIJob
-metadata:
-  name: mpi-hello-world
-spec:
-  slotsPerWorker: 1
-  runPolicy:
-    cleanPodPolicy: Running
-  mpiReplicaSpecs:
-    Launcher:
-      replicas: 1
-      template:
-        spec:
-          containers:
-          - image: mpioperator/mpi-pi:latest
-            name: mpi-launcher
-            command:
-            - mpirun
-            - -n
-            - "2"
-            - /home/mpiuser/pi
-    Worker:
-      replicas: 2
-      template:
-        spec:
-          containers:
-          - image: mpioperator/mpi-pi:latest
-            name: mpi-worker
-```
+# argocd/apps/mpi-operator/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
 
-この設定により、Launcher Pod が起動し、2つの Worker Pod 間で MPI プログラムが実行される。
-
-## トラブルシューティング
-
-実際に運用してみて、いくつか課題にぶつかった。
-
-### ネットワークの設定
-
-MPI は Pod 間での通信が必要なため、ネットワークポリシーの設定に注意が必要だった。
-特に自宅環境では CNI (Container Network Interface) の選択も重要で、Calico や Cilium など、Pod 間通信が安定して動作する CNI を選ぶ必要がある。
-
-### リソースの割り当て
-
-並列計算は CPU やメモリを大量に消費するため、適切なリソース制限とリクエストの設定が重要である。
-初期の設定では Worker Pod が OOMKilled になることがあったため、メモリの制限を調整した。
-
-```yaml
 resources:
-  requests:
-    memory: "2Gi"
-    cpu: "1000m"
-  limits:
-    memory: "4Gi"
-    cpu: "2000m"
+  - https://raw.githubusercontent.com/kubeflow/mpi-operator/v0.6.0/deploy/v2beta1/mpi-operator.yaml
+
+commonAnnotations:
+  argocd.argoproj.io/sync-options: ServerSideApply=true
+
+patches:
+  - target:
+      kind: CustomResourceDefinition
+    patch: |-
+      - op: add
+        path: /metadata/annotations/argocd.argoproj.io~1sync-wave
+        value: "-1"
 ```
 
-## モニタリング
+Sync Wave で CRD を先にデプロイしてからリソースをデプロイするようにすることで CRD に更新があっても sync がこけない。
 
-MPI ジョブの実行状況を把握するため、以下のようなモニタリングを行っている:
+## 他に追加したコンポーネント
 
-- Prometheus と Grafana によるメトリクスの可視化
-- ジョブの完了時間やリソース使用率の追跡
-- ログの集約 (Loki などを使用)
+MPI Operator と合わせて、クラスタ全体の運用に必要な以下のコンポーネントも ArgoCD で管理している。
 
-これにより、ジョブのパフォーマンスを分析し、継続的に改善できるようになった。
+### Argo Workflows
 
-# 学んだこと
+[Argo Workflows](https://github.com/argoproj/argo-workflows) は Kubernetes ネイティブなワークフローエンジンである。
+複雑な処理を DAG (Directed Acyclic Graph) として定義し、並列実行や条件分岐を含むワークフローを実行できる。
 
-## GitOps のメリット
+MPI Operator が単一の並列計算ジョブを実行するのに対し、Argo Workflows は複数のステップから成るパイプラインを構築できる。
+例えば、データの前処理 → MPI ジョブの実行 → 結果の後処理といった一連の流れを一つのワークフローとして定義できる。
 
-今回 ArgoCD を使って MPI Operator を管理したことで、GitOps のメリットを実感できた。
-特に以下の点が良かった:
+### kube-prometheus-stack
 
-- 設定の変更履歴が Git のコミットログとして残る
-- 変更のレビューが Pull Request で行える
-- 問題が発生した際のロールバックが容易
-- クラスタの状態を宣言的に管理できる
+[kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack) は Prometheus Operator、Grafana、Alertmanager などを含む包括的なモニタリングスタックである。
 
-## Operator パターンの理解
+導入している主な機能:
+- **Prometheus**: メトリクスの収集と保存
+- **Grafana**: メトリクスの可視化
+- **Alertmanager**: アラートの管理と通知
 
-MPI Operator を使うことで、Kubernetes の Operator パターンについても理解が深まった。
-Operator は Kubernetes API を拡張し、複雑なアプリケーションの管理を自動化する。
-特に MPI のような分散システムでは、手動での管理が困難なため、Operator の恩恵が大きい。
+それぞれに Ingress を設定し、cert-manager と連携して Let's Encrypt の証明書を自動取得している。
+MPI ジョブのリソース使用状況やパフォーマンスを追跡するために活用している。
 
-## 自宅クラスタの可能性
+### cert-manager と external-dns
 
-自宅の Kubernetes クラスタでも、適切なツールを使えば本格的な分散計算環境を構築できることが分かった。
-クラウドと比べてコストを抑えながら、実験的なワークロードを実行できるのは大きなメリットである。
+HTTPS 対応と DNS 管理を自動化するために以下も導入している:
 
-# 今後の展望
+- **[cert-manager](https://cert-manager.io/)**: Let's Encrypt の証明書を自動取得・更新
+- **[external-dns](https://github.com/kubernetes-sigs/external-dns)**: Kubernetes の Ingress リソースに基づいて Cloudflare の DNS レコードを自動管理
 
-MPI Operator の導入を機に、以下のようなことにも挑戦してみたいと考えている:
+これらにより、新しいサービスをデプロイする際に手動で証明書を取得したり DNS レコードを設定したりする必要がなくなった。
+ingress-nginx に annotation で cluster-issuer を指定しておくと、SSL 終端してくれるので楽でよい。
+ドメインは Cloudflare で管理している。
 
-- より大規模な並列計算ワークロードの実行
-- 機械学習の分散学習への応用
-- GPU を使った計算の実験
-- 他の Kubeflow コンポーネントの導入
+### ingress-nginx
 
-自宅クラスタはまだまだ拡張の余地があるので、継続的に改善していきたい。
+外部からクラスタへのアクセスを管理するために [ingress-nginx](https://github.com/kubernetes/ingress-nginx) を使用している。
+Prometheus、Grafana、その他のサービスについて ingress を生やすと external-dns がレコードを生やしてくれるので、ドメインでアクセスできるようになっている。
+Tailscale などの VPN でも繋げば外出時にもアクセスできる。
 
 # まとめ
 
 自宅 Kubernetes クラスタに MPI Operator を ArgoCD で導入した経験をまとめた。
 GitOps のアプローチを採用することで、インフラストラクチャの変更を安全かつ追跡可能な形で管理できるようになった。
-また、MPI Operator により、Kubernetes 上で分散計算を実行できる環境を整えることができた。
+また、MPI Operator により Kubernetes 上で分散計算を実行できる環境を整えることができた。
+[Kubeflow](https://www.kubeflow.org/) などのモダンな AI ワークフローを構築することも考えたが要件に見合う計算資源は無かったため、今回は断念した。
 
-自宅で実験環境を持つことで、新しい技術を気兼ねなく試せるのは大きなメリットである。
-今後もクラスタを拡張しながら、様々なワークロードに挑戦していきたい。
+雑にバッチジョブも投げられるようになったし、簡単な学習なら回せるようになったので遊んでみることにする。
