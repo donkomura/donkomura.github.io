@@ -72,9 +72,9 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: git@github.com:donkomura/donkooolab.git
+    repoURL: <repo url>
     targetRevision: main
-    path: argocd/apps/mpi-operator
+    path: <path>
   destination:
     server: https://kubernetes.default.svc
     namespace: mpi-operator
