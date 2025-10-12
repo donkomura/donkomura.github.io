@@ -20,7 +20,7 @@ display_tags = true
 truncate_summary = false
 featured = false
 reaction = false
-cover = "assets/cover.png"
+cover = "/assets/cover.png"
 +++
 
 先日風邪を引いてしまい、自宅で療養していたわけだが、あまりにもやることがなく暇だったので以前から作ろうと思っていた個人 Blog を作った。
