@@ -1,5 +1,6 @@
 +++
 title = "自宅 Kubernetes クラスタに MPI Operator を導入した話"
+description = "自宅で Kubernetes クラスタを運用していて、最近 MPI Operator などのコンポーネントを ArgoCD で整備したのでまとめてみる。"
 slug = "homelab-k8s-mpi-operator"
 date = 2025-10-11
 
@@ -20,6 +21,7 @@ display_tags = true
 truncate_summary = false
 featured = false
 reaction = false
+cover = "assets/cover.png"
 +++
 
 自宅で Kubernetes クラスタを運用していて、最近 [MPI Operator](https://github.com/kubeflow/mpi-operator) などのコンポーネントを ArgoCD で整備したのでまとめてみる。
