@@ -20,7 +20,7 @@ display_tags = true
 truncate_summary = false
 featured = false
 reaction = false
-cover = "assets/cover.png"
+cover = "/assets/cover.png"
 +++
 
 [大規模データセットのためのアルゴリズムとデータ構造](https://book.mynavi.jp/ec/products/detail/id=143918) という本を読んでいる。
