@@ -20,6 +20,7 @@ display_tags = true
 truncate_summary = false
 featured = false
 reaction = false
+cover = "assets/cover.png"
 +++
 
 [以前のブログ](@/blog/2025-03-16-consistent-hashing-in-rust.md) で Rust を書いて以降、 Rust に興味を持ち始めました。
