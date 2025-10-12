@@ -20,7 +20,7 @@ display_tags = true
 truncate_summary = false
 featured = false
 reaction = false
-cover = "assets/cover.png"
+cover = "/assets/cover.png"
 +++
 
 時間ができたのでゲームでも嗜むかと思い、Steam を漁っていたところ、「baba is you」で有名な Hempuli 氏の新作ゲームが発売されているところを発見した。

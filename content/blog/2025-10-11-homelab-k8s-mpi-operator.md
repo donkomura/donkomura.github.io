@@ -21,7 +21,7 @@ display_tags = true
 truncate_summary = false
 featured = false
 reaction = false
-cover = "assets/cover.png"
+cover = "/assets/cover.png"
 +++
 
 自宅で Kubernetes クラスタを運用していて、最近 [MPI Operator](https://github.com/kubeflow/mpi-operator) などのコンポーネントを ArgoCD で整備したのでまとめてみる。
