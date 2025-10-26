@@ -35,8 +35,6 @@ Quotient Filter (QF) は 2012 年に Bender らによって提案された確率
 「要素が集合に含まれているか」を高速に判定できるが、偽陽性（False Positive）が発生する可能性がある。
 つまり、実際には存在しない要素を「存在する」と誤って判定することがある。
 
-[^1]: [Don't Thrash: How to Cache Your Hash on Flash](https://vldb.org/pvldb/vol5/p1627_michaelabender_vldb2012.pdf)
-
 ## Bloom Filter との違い
 
 既存の手法として本にも登場した Bloom Filter (BF) との違いが言及されていたので整理する。
@@ -132,8 +130,6 @@ Quotient Filter は以下の主要な操作をサポートする：
 フィルタの負荷が高くなる、つまりクラスタが大きくなると性能劣化も大きくなる傾向にある[^2]。
 色々やり方はあるが、今回は分かり易さを重視してリサイズ・再挿入を行った。
 他には本書で言及されているように Remainder のビットを Quotient に寄せることでテーブルを実質倍にすることができる。
-
-[^2]: 本書では充填率が 75~80% になると性能が大きく低下すると説明している
 
 ### マージ（Merge）
 
@@ -315,3 +311,9 @@ Bloom Filter のような単純な仕組みかと思いきや、連続アクセ�
 内容が分かるとそれほど凝った実装にはならないはず...
 
 Quotient Filter についての研究は直近でも行われており、特に [CQF](https://dl.acm.org/doi/10.1145/3035918.3035963) や [Quotient Filters: Approximate Membership Queries on the GPU](https://ieeexplore.ieee.org/document/8425199) あたりが気になるので時間のある時に読んでみようと思う。
+
+---
+
+[^1]: [Don't Thrash: How to Cache Your Hash on Flash](https://vldb.org/pvldb/vol5/p1627_michaelabender_vldb2012.pdf)
+
+[^2]: 本書では充填率が 75~80% になると性能が大きく低下すると説明している
