@@ -1,5 +1,5 @@
 +++
-title = "Quotient Filter - 高効率な確率的データ構造の実装"
+title = "Quotient Filter を実装する"
 slug = "quotient-filter"
 date = 2025-10-25
 
