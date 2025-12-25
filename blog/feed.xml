@@ -1,0 +1,982 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="ja">
+	<title>Blog</title>
+	<subtitle>Donko blog</subtitle>
+	<link href="https://donkomura.github.io/blog/feed.xml" rel="self" type="application/atom+xml"/>
+    <link href="https://donkomura.github.io/blog/"/>
+	<updated>2025-12-24T00:00:00+00:00</updated>
+	<id>https://donkomura.github.io/blog/feed.xml</id>
+	<entry xml:lang="ja">
+		<title>RustでRaft Consensus Algorithmを実装した</title>
+		<published>2025-12-24T00:00:00+00:00</published>
+		<updated>2025-12-24T00:00:00+00:00</updated>
+        <summary>&lt;p&gt;分散システムにおける合意形成アルゴリズムとして知られている Raft を、Rust で実装してみた。この記事では、Rust の型システムとトレイトを活用した設計について紹介する。&lt;&#x2F;p&gt;</summary>
+		<link href="https://donkomura.github.io/blog/raft-implementation-in-rust/" type="text/html"/>
+		<id>https://donkomura.github.io/blog/raft-implementation-in-rust/</id>
+		<content type="html">&lt;p&gt;分散システムにおける合意形成アルゴリズムとして知られている Raft を、Rust で実装してみた。この記事では、Rust の型システムとトレイトを活用した設計について紹介する。&lt;&#x2F;p&gt;
+&lt;span id=&quot;continue-reading&quot;&gt;&lt;&#x2F;span&gt;&lt;h2 id=&quot;naze-rust-defen-san-sisutemuwoshi-zhuang-surunoka&quot;&gt;なぜ Rust で分散システムを実装するのか&lt;a class=&quot;zola-anchor&quot; href=&quot;#naze-rust-defen-san-sisutemuwoshi-zhuang-surunoka&quot; aria-label=&quot;Anchor link for: naze-rust-defen-san-sisutemuwoshi-zhuang-surunoka&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;p&gt;分散システムの実装では、データ競合や状態不整合が実行時エラーを引き起こす可能性がある。また、拡張性を確保しつつ実装の誤りを防ぐ必要があり、複数ノード間の通信でスレッド安全性を保証する必要もある。&lt;&#x2F;p&gt;
+&lt;p&gt;これらの課題に対して、Rust の型システムとトレイトを使うことで、抽象インターフェースを定義し実装の誤りをコンパイル時に検出できる。さらに、所有権システムによりデータ競合をコンパイル時に防げるため、並行処理の安全性を保証しやすい。&lt;&#x2F;p&gt;
+&lt;p&gt;この記事では、&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;donkomura&#x2F;ikada&quot;&gt;ikada&lt;&#x2F;a&gt; という、&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;raft.github.io&#x2F;raft.pdf&quot;&gt;Raft の論文&lt;&#x2F;a&gt;のコア機能を実装したライブラリを例に、型システムとトレイトをどう活用したかを紹介する。&lt;&#x2F;p&gt;
+&lt;p&gt;実装した主な機能：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;Leader Election (リーダー選出)&lt;&#x2F;li&gt;
+&lt;li&gt;Log Replication (ログレプリケーション)&lt;&#x2F;li&gt;
+&lt;li&gt;Safety Guarantees (安全性の保証)&lt;&#x2F;li&gt;
+&lt;li&gt;State Persistence (状態の永続化)&lt;&#x2F;li&gt;
+&lt;li&gt;Client Interaction (クライアントとの通信)&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;akitekutiyagai-yao&quot;&gt;アーキテクチャ概要&lt;a class=&quot;zola-anchor&quot; href=&quot;#akitekutiyagai-yao&quot; aria-label=&quot;Anchor link for: akitekutiyagai-yao&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;zhuang-tai-guan-li-xing-deshi-yang-wobiao-xian-suru&quot;&gt;状態管理：型で仕様を表現する&lt;a class=&quot;zola-anchor&quot; href=&quot;#zhuang-tai-guan-li-xing-deshi-yang-wobiao-xian-suru&quot; aria-label=&quot;Anchor link for: zhuang-tai-guan-li-xing-deshi-yang-wobiao-xian-suru&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;Raft の論文 Figure 2 には、ノードが管理すべき状態が定義されている。これを &lt;code&gt;RaftState&lt;&#x2F;code&gt; 構造体で忠実に実装した：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#272822;color:#f8f8f2;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;pub &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;struct &lt;&#x2F;span&gt;&lt;span&gt;RaftState&amp;lt;T: &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;Send &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;+ &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;Sync&lt;&#x2F;span&gt;&lt;span&gt;, SM: StateMachine&amp;lt;Command = T&amp;gt;&amp;gt; {
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#75715e;&quot;&gt;&#x2F;&#x2F; Persistent state on all servers（永続化が必要）
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;pub &lt;&#x2F;span&gt;&lt;span&gt;persistent: PersistentState&amp;lt;T&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#75715e;&quot;&gt;&#x2F;&#x2F; Volatile state on all servers（揮発性）
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;pub &lt;&#x2F;span&gt;&lt;span&gt;commit_index: &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;u32&lt;&#x2F;span&gt;&lt;span&gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;pub &lt;&#x2F;span&gt;&lt;span&gt;last_applied: &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;u32&lt;&#x2F;span&gt;&lt;span&gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#75715e;&quot;&gt;&#x2F;&#x2F; Volatile state on leader（Leaderのみ）
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;pub &lt;&#x2F;span&gt;&lt;span&gt;next_index: HashMap&amp;lt;SocketAddr, &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;u32&lt;&#x2F;span&gt;&lt;span&gt;&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;pub &lt;&#x2F;span&gt;&lt;span&gt;match_index: HashMap&amp;lt;SocketAddr, &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;u32&lt;&#x2F;span&gt;&lt;span&gt;&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;pub &lt;&#x2F;span&gt;&lt;span&gt;role: Role,
+&lt;&#x2F;span&gt;&lt;span&gt;    storage: &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;Box&lt;&#x2F;span&gt;&lt;span&gt;&amp;lt;dyn Storage&amp;lt;T&amp;gt;&amp;gt;,  &lt;&#x2F;span&gt;&lt;span style=&quot;color:#75715e;&quot;&gt;&#x2F;&#x2F; トレイトオブジェクトで抽象化
+&lt;&#x2F;span&gt;&lt;span&gt;    sm: SM,                        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#75715e;&quot;&gt;&#x2F;&#x2F; ジェネリクスで型安全性
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;永続化が必要な状態を &lt;code&gt;PersistentState&lt;&#x2F;code&gt; 構造体として物理的に分離している。これにより、再起動時に復旧すべき状態が型として明確になる。また、型パラメータ &lt;code&gt;T: Send + Sync&lt;&#x2F;code&gt; でコマンド型を抽象化し、&lt;code&gt;SM: StateMachine&amp;lt;Command = T&amp;gt;&lt;&#x2F;code&gt; でステートマシンを差し替え可能にしている。&lt;&#x2F;p&gt;
+&lt;p&gt;ノードのロールは Enum で表現している：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#272822;color:#f8f8f2;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span&gt;#[derive(Debug, Clone, Copy, Default, PartialEq)]
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;pub &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;enum &lt;&#x2F;span&gt;&lt;span&gt;Role {
+&lt;&#x2F;span&gt;&lt;span&gt;    #[default]
+&lt;&#x2F;span&gt;&lt;span&gt;    Follower,
+&lt;&#x2F;span&gt;&lt;span&gt;    Candidate,
+&lt;&#x2F;span&gt;&lt;span&gt;    Leader,
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;Enum によって、ノードのロールが常に3つのうちいずれか1つであることが保証される。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;toreitotoxing-sisutemuniyorushe-ji&quot;&gt;トレイトと型システムによる設計&lt;a class=&quot;zola-anchor&quot; href=&quot;#toreitotoxing-sisutemuniyorushe-ji&quot; aria-label=&quot;Anchor link for: toreitotoxing-sisutemuniyorushe-ji&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;p&gt;Rust の型システムを活用した設計について説明する。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;1-statemachine-toreito-kuo-zhang-ke-neng-nazhuang-tai-ji-jie&quot;&gt;1. StateMachine トレイト：拡張可能な状態機械&lt;a class=&quot;zola-anchor&quot; href=&quot;#1-statemachine-toreito-kuo-zhang-ke-neng-nazhuang-tai-ji-jie&quot; aria-label=&quot;Anchor link for: 1-statemachine-toreito-kuo-zhang-ke-neng-nazhuang-tai-ji-jie&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;Raft は合意形成のコアアルゴリズムで、実際にどんな状態機械（State Machine）を動かすかはユーザー次第である。&lt;code&gt;StateMachine&lt;&#x2F;code&gt; トレイトを定義することで、任意の状態機械を統合できるようにしている：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#272822;color:#f8f8f2;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span&gt;#[async_trait::async_trait]
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;pub &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;trait &lt;&#x2F;span&gt;&lt;span&gt;StateMachine: Send + Sync {
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;type &lt;&#x2F;span&gt;&lt;span&gt;Command: &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;Send &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;+ &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;Sync &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;+ &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;Clone&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;type &lt;&#x2F;span&gt;&lt;span&gt;Response: &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;Send &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;+ &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;Sync&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span&gt;    async &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#a6e22e;&quot;&gt;apply&lt;&#x2F;span&gt;&lt;span&gt;(
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;amp;mut &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;command&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;Self::&lt;&#x2F;span&gt;&lt;span&gt;Command,
+&lt;&#x2F;span&gt;&lt;span&gt;    ) -&amp;gt; anyhow::&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;Result&lt;&#x2F;span&gt;&lt;span&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;Self::&lt;&#x2F;span&gt;&lt;span&gt;Response&amp;gt;;
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;インターフェースはシンプルにしている。&lt;code&gt;apply&lt;&#x2F;code&gt; メソッド1つだけを定義し、コマンドを受け取って結果を返す形にした。&lt;code&gt;Command&lt;&#x2F;code&gt; と &lt;code&gt;Response&lt;&#x2F;code&gt; を関連型にすることで、ユーザーが任意の型を指定できる。したがって、Key-Value Store、データベース、計算エンジンなど、様々な状態機械に対応できる。&lt;&#x2F;p&gt;
+&lt;p&gt;また、&lt;code&gt;Send + Sync&lt;&#x2F;code&gt; 制約により、コンパイラが自動的にスレッド安全性をチェックする。これにより、マルチスレッド環境で非スレッド安全な型を使った場合、コンパイル時にエラーとなる。&lt;&#x2F;p&gt;
+&lt;p&gt;デフォルト実装として Key-Value Store を提供している：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#272822;color:#f8f8f2;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;color:#75715e;&quot;&gt;&#x2F;&#x2F; デフォルトのKVストア実装
+&lt;&#x2F;span&gt;&lt;span&gt;#[derive(Default, Debug)]
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;pub &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;struct &lt;&#x2F;span&gt;&lt;span&gt;KVStateMachine {
+&lt;&#x2F;span&gt;&lt;span&gt;    data: HashMap&amp;lt;&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;String&lt;&#x2F;span&gt;&lt;span&gt;, &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;String&lt;&#x2F;span&gt;&lt;span&gt;&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span&gt;#[derive(Clone, Debug, Serialize, Deserialize)]
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;pub &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;enum &lt;&#x2F;span&gt;&lt;span&gt;KVCommand {
+&lt;&#x2F;span&gt;&lt;span&gt;    Set { key: &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;String&lt;&#x2F;span&gt;&lt;span&gt;, value: &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;String &lt;&#x2F;span&gt;&lt;span&gt;},
+&lt;&#x2F;span&gt;&lt;span&gt;    Get { key: &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;String &lt;&#x2F;span&gt;&lt;span&gt;},
+&lt;&#x2F;span&gt;&lt;span&gt;    Delete { key: &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;String &lt;&#x2F;span&gt;&lt;span&gt;},
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;2-storage-toreito-yong-sok-hua-ceng-nochou-xiang-hua&quot;&gt;2. Storage トレイト：永続化層の抽象化&lt;a class=&quot;zola-anchor&quot; href=&quot;#2-storage-toreito-yong-sok-hua-ceng-nochou-xiang-hua&quot; aria-label=&quot;Anchor link for: 2-storage-toreito-yong-sok-hua-ceng-nochou-xiang-hua&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;Raft の状態を永続化するため、&lt;code&gt;Storage&lt;&#x2F;code&gt; トレイトを定義している：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#272822;color:#f8f8f2;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span&gt;#[async_trait::async_trait]
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;pub &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;trait &lt;&#x2F;span&gt;&lt;span&gt;Storage&amp;lt;T: Send + Sync&amp;gt;: Send + Sync {
+&lt;&#x2F;span&gt;&lt;span&gt;    async &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#a6e22e;&quot;&gt;save&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;amp;mut &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;, &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;state&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span&gt;PersistentState&amp;lt;T&amp;gt;) -&amp;gt; anyhow::&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;Result&lt;&#x2F;span&gt;&lt;span&gt;&amp;lt;()&amp;gt;;
+&lt;&#x2F;span&gt;&lt;span&gt;    async &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#a6e22e;&quot;&gt;load&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;) -&amp;gt; anyhow::&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;Result&lt;&#x2F;span&gt;&lt;span&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;Option&lt;&#x2F;span&gt;&lt;span&gt;&amp;lt;PersistentState&amp;lt;T&amp;gt;&amp;gt;&amp;gt;;
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;このトレイトにより、バックエンドの切り替えが容易になる。したがって、メモリ、ファイルシステム、データベースなど、実装を差し替えるだけで対応できる。例えば、テストではメモリストレージを使い、本番環境では永続化ストレージを使うといった使い分けができる。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;3-raftrpc-toreito-xing-an-quan-na-rpc-ding-yi&quot;&gt;3. RaftRpc トレイト：型安全な RPC 定義&lt;a class=&quot;zola-anchor&quot; href=&quot;#3-raftrpc-toreito-xing-an-quan-na-rpc-ding-yi&quot; aria-label=&quot;Anchor link for: 3-raftrpc-toreito-xing-an-quan-na-rpc-ding-yi&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;ノード間通信には &lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;google&#x2F;tarpc&quot;&gt;tarpc&lt;&#x2F;a&gt; を使用し、RPC インターフェースをトレイトで定義している：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#272822;color:#f8f8f2;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span&gt;#[tarpc::service]
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;pub &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;trait &lt;&#x2F;span&gt;&lt;span&gt;RaftRpc {
+&lt;&#x2F;span&gt;&lt;span&gt;    async &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#a6e22e;&quot;&gt;append_entries&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;req&lt;&#x2F;span&gt;&lt;span&gt;: AppendEntriesRequest) -&amp;gt; AppendEntriesResponse;
+&lt;&#x2F;span&gt;&lt;span&gt;    async &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#a6e22e;&quot;&gt;request_vote&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;req&lt;&#x2F;span&gt;&lt;span&gt;: RequestVoteRequest) -&amp;gt; RequestVoteResponse;
+&lt;&#x2F;span&gt;&lt;span&gt;    async &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#a6e22e;&quot;&gt;client_request&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;req&lt;&#x2F;span&gt;&lt;span&gt;: CommandRequest) -&amp;gt; CommandResponse;
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;リクエスト&#x2F;レスポンスの型が一致しない場合、コンパイル時にエラーとなる。また、tarpc が自動的にクライアント&#x2F;サーバーコードを生成するため、ボイラープレートを書く必要がない。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;4-gong-you-zhuang-tai-noan-quan-naguan-li&quot;&gt;4. 共有状態の安全な管理&lt;a class=&quot;zola-anchor&quot; href=&quot;#4-gong-you-zhuang-tai-noan-quan-naguan-li&quot; aria-label=&quot;Anchor link for: 4-gong-you-zhuang-tai-noan-quan-naguan-li&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;分散システムでは状態の共有が不可欠だが、Rust の所有権システムと調和させる必要がある。そこで、&lt;code&gt;Arc&amp;lt;Mutex&amp;lt;RaftState&amp;gt;&amp;gt;&lt;&#x2F;code&gt; を使用することで、安全な共有可変状態を実現している：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#272822;color:#f8f8f2;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;pub &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;struct &lt;&#x2F;span&gt;&lt;span&gt;Node&amp;lt;T: &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;Send &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;+ &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;Sync&lt;&#x2F;span&gt;&lt;span&gt;, SM: StateMachine&amp;lt;Command = T&amp;gt;&amp;gt; {
+&lt;&#x2F;span&gt;&lt;span&gt;    state: Arc&amp;lt;Mutex&amp;lt;RaftState&amp;lt;T, SM&amp;gt;&amp;gt;&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#75715e;&quot;&gt;&#x2F;&#x2F; ...
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;Mutex&lt;&#x2F;code&gt; により、同時に1つのスレッドしか状態を変更できないため、データ競合を防げる。&lt;code&gt;Arc&lt;&#x2F;code&gt; により、どのスレッドが状態を共有しているか追跡でき、参照カウントが0になると自動的にメモリが解放される。&lt;&#x2F;p&gt;
+&lt;p&gt;ただし、Rust の型システムは「Mutex 保護領域を触るにはロックが必要」という制約を保証できるが、デッドロックや非同期コンテキストでの &lt;code&gt;.await&lt;&#x2F;code&gt; をまたいだロック保持、タスク飢餓などは別途設計で対処する必要がある。これらの課題については「今後の展望」セクションで触れる。&lt;&#x2F;p&gt;
+&lt;p&gt;なお、各種通知に関してはチャネルで実装した。Go と似たメンタルモデルで実装できたのは、Go の経験が生きたように感じた。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;raft-arugorizumunoshi-zhuang&quot;&gt;Raft アルゴリズムの実装&lt;a class=&quot;zola-anchor&quot; href=&quot;#raft-arugorizumunoshi-zhuang&quot; aria-label=&quot;Anchor link for: raft-arugorizumunoshi-zhuang&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;p&gt;Rust の型システムを活用した設計について説明してきたが、次に Raft の具体的なアルゴリズム実装について触れる。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;leader-election-fei-tong-qi-bing-lie-chu-li&quot;&gt;Leader Election：非同期並列処理&lt;a class=&quot;zola-anchor&quot; href=&quot;#leader-election-fei-tong-qi-bing-lie-chu-li&quot; aria-label=&quot;Anchor link for: leader-election-fei-tong-qi-bing-lie-chu-li&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;Follower は一定時間 Leader からのハートビートを受信しないと、Candidate に遷移して選挙を開始する。すべてのピアに並列で RequestVote RPC を送信する。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#272822;color:#f8f8f2;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;color:#75715e;&quot;&gt;&#x2F;&#x2F; Request votes from all peers in parallel
+&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;let &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;mut&lt;&#x2F;span&gt;&lt;span&gt; tasks &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span&gt;JoinSet::new();
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;for &lt;&#x2F;span&gt;&lt;span&gt;(addr, client) &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;in&lt;&#x2F;span&gt;&lt;span&gt; peers {
+&lt;&#x2F;span&gt;&lt;span&gt;    tasks.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;spawn&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;Self&lt;&#x2F;span&gt;&lt;span&gt;::send_request_vote(addr, client, req, rpc_timeout));
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#75715e;&quot;&gt;&#x2F;&#x2F; Collect responses
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;while &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;let Some&lt;&#x2F;span&gt;&lt;span&gt;(result) &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt; tasks.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;join_next&lt;&#x2F;span&gt;&lt;span&gt;().await {
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#75715e;&quot;&gt;&#x2F;&#x2F; レスポンスを収集
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;tokio::task::JoinSet&lt;&#x2F;code&gt; を使用することで、複数の RPC を並列実行している。過半数の投票を獲得すると Leader に遷移する。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;log-replication-bing-lie-shi-xing&quot;&gt;Log Replication：並列実行&lt;a class=&quot;zola-anchor&quot; href=&quot;#log-replication-bing-lie-shi-xing&quot; aria-label=&quot;Anchor link for: log-replication-bing-lie-shi-xing&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;Leader は AppendEntries RPC を使って Follower にログエントリを複製する。Log Replication も並列実行している。各 Follower の &lt;code&gt;next_index&lt;&#x2F;code&gt; に基づいて送信すべきエントリを決定し、並列で AppendEntries RPC を送信する。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;jin-hou-nozhan-wang&quot;&gt;今後の展望&lt;a class=&quot;zola-anchor&quot; href=&quot;#jin-hou-nozhan-wang&quot; aria-label=&quot;Anchor link for: jin-hou-nozhan-wang&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;p&gt;現在の実装は Raft のコア機能に焦点を当てているが、実用化に向けていくつかの機能を追加していく予定である。&lt;&#x2F;p&gt;
+&lt;p&gt;まず、Cluster Membership Changes（論文§6）と Log Compaction and Snapshots（論文§7）の実装である。これらにより、クラスタの動的な構成変更とストレージ使用量の削減が可能になる。&lt;&#x2F;p&gt;
+&lt;p&gt;また、AppendEntries 失敗時の &lt;code&gt;nextIndex&lt;&#x2F;code&gt; 調整については、論文に記載されている最適化（conflict term と conflict index）を実装することで、ログの整合性を効率的に取ることができる。単純に &lt;code&gt;nextIndex -= 1&lt;&#x2F;code&gt; とすると最悪 O(n²) の時間がかかるため、この最適化は重要である。&lt;&#x2F;p&gt;
+&lt;p&gt;統合テストについては、ネットワークパーティションやクロックスキュー、メッセージの重複・遅延など、実際の分散環境で発生する障害シナリオのテストを充実させていく予定である。&lt;&#x2F;p&gt;
+&lt;p&gt;最後に、パフォーマンス測定と最適化を行う予定である。現時点では機能の正確性を優先しているが、実用化にはスループットとレイテンシーの改善が必要になると思う。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;matome&quot;&gt;まとめ&lt;a class=&quot;zola-anchor&quot; href=&quot;#matome&quot; aria-label=&quot;Anchor link for: matome&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;p&gt;Rust で Raft を実装してみた。型システムとトレイトを活用することで、安全かつ拡張可能な設計ができたと感じている。&lt;&#x2F;p&gt;
+&lt;p&gt;トレイトによる抽象化は有用だった。&lt;code&gt;StateMachine&lt;&#x2F;code&gt;、&lt;code&gt;Storage&lt;&#x2F;code&gt;、&lt;code&gt;RaftRpc&lt;&#x2F;code&gt; など、インターフェースを明確に定義することで、ユーザーが独自実装を差し込める拡張性を確保できた。また、型システムによる安全性も重要で、&lt;code&gt;Send + Sync&lt;&#x2F;code&gt; 境界やジェネリクスにより、コンパイル時にスレッド安全性や型の整合性をチェックできる。さらに、所有権システムは、&lt;code&gt;Arc&amp;lt;Mutex&amp;lt;T&amp;gt;&amp;gt;&lt;&#x2F;code&gt; によるデータ競合の防止と、明確な所有権管理を実現する。&lt;&#x2F;p&gt;
+&lt;p&gt;一方で、型システムだけでは防げない複雑な安全性ルールも存在する。例えば、現在の term のエントリのみコミットするという Raft の安全性ルールは、ロジックとして実装する必要がある。したがって、これらは明確な構造体設計と単体テストで補完している。&lt;&#x2F;p&gt;
+&lt;p&gt;分散システムの実装は難しいが、Rust の型システムを活用することで、実行時エラーをコンパイル時に検出できる。これにより、安全性と開発効率の両立がしやすいと思う。&lt;&#x2F;p&gt;
+&lt;p&gt;興味のある方は、&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;donkomura&#x2F;ikada&quot;&gt;GitHub リポジトリ&lt;&#x2F;a&gt;をご覧いただきたい。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;can-kao-wen-xian&quot;&gt;参考文献&lt;a class=&quot;zola-anchor&quot; href=&quot;#can-kao-wen-xian&quot; aria-label=&quot;Anchor link for: can-kao-wen-xian&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;raft.github.io&#x2F;raft.pdf&quot;&gt;In Search of an Understandable Consensus Algorithm (Extended Version)&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;http:&#x2F;&#x2F;thesecretlivesofdata.com&#x2F;raft&#x2F;&quot;&gt;Raft Visualization&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;raft.github.io&#x2F;&quot;&gt;Raft GitHub Pages&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+	</entry>
+	<entry xml:lang="ja">
+		<title>Quotient Filter を実装する</title>
+		<published>2025-10-25T00:00:00+00:00</published>
+		<updated>2025-10-25T00:00:00+00:00</updated>
+		<link href="https://donkomura.github.io/blog/quotient-filter/" type="text/html"/>
+		<id>https://donkomura.github.io/blog/quotient-filter/</id>
+		<content type="html">&lt;p&gt;『大規模データセットのためのアルゴリズムとデータ構造』という本を読んでいる。
+第一部では確率的な手法を使った簡潔なデータ構造について紹介されている。
+Quotient Filter はそのようなデータ構造のひとつであり、 Bloom Filter と同様の機能を提供している一方で全く異なる設計となっている。
+仕組みをより深く理解するべく、この Quotient Filter を実装してみる。
+コードは &lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;donkomura&#x2F;hash_bench&#x2F;blob&#x2F;2464dbfb9336c3d583a2a73d92506016d315eaf2&#x2F;src&#x2F;quotient_filter.rs&quot;&gt;GitHub リポジトリ&lt;&#x2F;a&gt; で公開している。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;quotient-filter-toha&quot;&gt;Quotient Filter とは&lt;a class=&quot;zola-anchor&quot; href=&quot;#quotient-filter-toha&quot; aria-label=&quot;Anchor link for: quotient-filter-toha&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h1&gt;
+&lt;p&gt;Quotient Filter (QF) は 2012 年に Bender らによって提案された確率的データ構造&lt;sup class=&quot;footnote-reference&quot;&gt;&lt;a href=&quot;#1&quot;&gt;1&lt;&#x2F;a&gt;&lt;&#x2F;sup&gt;で、集合のメンバーシップテストを効率的に行うことができる（&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;Approximate_membership_query_filter&quot;&gt;Approximate membership query filter; AMQ filter&lt;&#x2F;a&gt; のひとつ）。
+「要素が集合に含まれているか」を高速に判定できるが、偽陽性（False Positive）が発生する可能性がある。
+つまり、実際には存在しない要素を「存在する」と誤って判定することがある。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;bloom-filter-tonowei-i&quot;&gt;Bloom Filter との違い&lt;a class=&quot;zola-anchor&quot; href=&quot;#bloom-filter-tonowei-i&quot; aria-label=&quot;Anchor link for: bloom-filter-tonowei-i&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;p&gt;既存の手法として本にも登場した Bloom Filter (BF) との違いが言及されていたので整理する。&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;アクセス局所性
+&lt;ul&gt;
+&lt;li&gt;BF ではデータの書き込みはランダムアクセスとなるが、 QF ではデータアクセスが局所化している&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;機能
+&lt;ul&gt;
+&lt;li&gt;BF では削除できないが、 QF では削除・動的リサイズ・マージをサポートしている&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;性能
+&lt;ul&gt;
+&lt;li&gt;局所化されたアクセスが可能なため、挿入やRAMの容量を越える規模での操作が BF よりも良い性能となる&lt;&#x2F;li&gt;
+&lt;li&gt;特にストレージにデータがある場合では連続アクセスとなる QF の方が有利&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;BF では複数のハッシュ関数でスロットを埋める必要があるが、 QF ではハッシュ値をもとに線形探索でスロットを埋める。
+基本的にはこの設計の違いが性能に影響を与えている。
+なお後述するが、 QF の方が線形探索のために使うメタデータを保持する必要があるため BF よりも多くのメモリを使用する。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;ji-ben-de-nashi-zu-mi&quot;&gt;基本的な仕組み&lt;a class=&quot;zola-anchor&quot; href=&quot;#ji-ben-de-nashi-zu-mi&quot; aria-label=&quot;Anchor link for: ji-ben-de-nashi-zu-mi&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;hatusiyuzhi-nofen-ge&quot;&gt;ハッシュ値の分割&lt;a class=&quot;zola-anchor&quot; href=&quot;#hatusiyuzhi-nofen-ge&quot; aria-label=&quot;Anchor link for: hatusiyuzhi-nofen-ge&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;p&gt;ハッシュ値を &lt;strong&gt;Quotient&lt;&#x2F;strong&gt;（商）と &lt;strong&gt;Remainder&lt;&#x2F;strong&gt;（余り）に分割し、 Quotient を元に線形探索を施してスロットに Remainder 入れていく。
+ハッシュ値を &lt;code&gt;h&lt;&#x2F;code&gt; ビットとすると、上位 &lt;code&gt;q&lt;&#x2F;code&gt; ビットを Quotient、下位 &lt;code&gt;r&lt;&#x2F;code&gt; ビットを Remainder として扱う（&lt;code&gt;h = q + r&lt;&#x2F;code&gt;）。&lt;&#x2F;p&gt;
+&lt;pre style=&quot;background-color:#272822;color:#f8f8f2;&quot;&gt;&lt;code&gt;&lt;span&gt;hash(key) = [quotient (q bits)][remainder (r bits)]
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Quotient&lt;&#x2F;strong&gt;: フィルタのどのスロットに格納するかを決定するインデックス（&lt;code&gt;2^q&lt;&#x2F;code&gt; 個のスロット）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Remainder&lt;&#x2F;strong&gt;: スロットに格納される実際の値&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;例えば、&lt;code&gt;q=8&lt;&#x2F;code&gt;, &lt;code&gt;r=4&lt;&#x2F;code&gt; の場合、ハッシュ値 &lt;code&gt;0b111111110000&lt;&#x2F;code&gt; は以下のように分割される：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#272822;color:#f8f8f2;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span&gt;quotient  &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;0b11111111  &lt;&#x2F;span&gt;&lt;span style=&quot;color:#75715e;&quot;&gt;&#x2F;&#x2F; 255
+&lt;&#x2F;span&gt;&lt;span&gt;remainder &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;0b0000      &lt;&#x2F;span&gt;&lt;span style=&quot;color:#75715e;&quot;&gt;&#x2F;&#x2F; 0
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;run-tokurasutaringu&quot;&gt;Run とクラスタリング&lt;a class=&quot;zola-anchor&quot; href=&quot;#run-tokurasutaringu&quot; aria-label=&quot;Anchor link for: run-tokurasutaringu&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;p&gt;探索をする際には Quotient が主に使われる。
+Quotient が同じものや隣接する Quotient を線形探索して目的のハッシュ値を検索する。
+同じ Quotient のスロット列とこれらを合わせた列について呼称があるので実装を説明する前に紹介する。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;run&quot;&gt;Run&lt;a class=&quot;zola-anchor&quot; href=&quot;#run&quot; aria-label=&quot;Anchor link for: run&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;同じ Quotient を持つ要素の集まりを &lt;strong&gt;Run&lt;&#x2F;strong&gt; と呼ぶ。
+Run 内では Remainder の昇順で要素が並べられる。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;cluster&quot;&gt;Cluster&lt;a class=&quot;zola-anchor&quot; href=&quot;#cluster&quot; aria-label=&quot;Anchor link for: cluster&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;複数の Run が連続して配置されている場合、これを &lt;strong&gt;クラスター&lt;&#x2F;strong&gt; と呼ぶ。
+クラスターが形成されると、本来の位置（ホームスロット）から離れた位置に要素が配置される（Shifted）。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;metadeta&quot;&gt;メタデータ&lt;a class=&quot;zola-anchor&quot; href=&quot;#metadeta&quot; aria-label=&quot;Anchor link for: metadeta&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;p&gt;Remainder の挿入は Quotient を元に実施される。
+Quotient が衝突した際には本来挿入されるべき位置からずれて挿入されることがある。
+基本的には線形探索で後続のスロットに挿入されるが、スロットがどの Run のものなのか判別がつかなくなる。
+そこで以下のフラグを使って探索を支援する。&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;Occupied (is_occupied)&lt;&#x2F;strong&gt;: そのスロットのインデックスを Quotient として持つ要素が存在するか&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Continued (is_continued)&lt;&#x2F;strong&gt;: そのスロットが Run の一部（先頭以外）であるか&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Shifted (is_shifted)&lt;&#x2F;strong&gt;: そのスロットに格納された Remainder が本来の位置からシフトされているか&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;shi-zhuang-nogai-yao&quot;&gt;実装の概要&lt;a class=&quot;zola-anchor&quot; href=&quot;#shi-zhuang-nogai-yao&quot; aria-label=&quot;Anchor link for: shi-zhuang-nogai-yao&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;zhu-yao-nacao-zuo&quot;&gt;主要な操作&lt;a class=&quot;zola-anchor&quot; href=&quot;#zhu-yao-nacao-zuo&quot; aria-label=&quot;Anchor link for: zhu-yao-nacao-zuo&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;p&gt;Quotient Filter は以下の主要な操作をサポートする：&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;cha-ru-insert&quot;&gt;挿入（Insert）&lt;a class=&quot;zola-anchor&quot; href=&quot;#cha-ru-insert&quot; aria-label=&quot;Anchor link for: cha-ru-insert&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;挿入操作は以下の手順で行われる：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;キーをハッシュし、Quotient と Remainder に分割&lt;&#x2F;li&gt;
+&lt;li&gt;Quotient に対応するスロットを確認&lt;&#x2F;li&gt;
+&lt;li&gt;スロットが空なら直接挿入&lt;&#x2F;li&gt;
+&lt;li&gt;スロットが使用中なら Cluster の先頭から Run の位置を走査・特定し、適切な位置に挿入&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;衝突が発生した場合、Run 内で Remainder の昇順を保つように要素を配置し、必要に応じて後続の要素をシフトする。
+昇順に保つことで探索時に Run 全体を検索することなく、見つかった時点で探索を打ち切ることができる。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;jian-suo-lookup&quot;&gt;検索（Lookup）&lt;a class=&quot;zola-anchor&quot; href=&quot;#jian-suo-lookup&quot; aria-label=&quot;Anchor link for: jian-suo-lookup&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;検索操作は以下の手順で行われる：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;キーをハッシュし、Quotient と Remainder に分割&lt;&#x2F;li&gt;
+&lt;li&gt;Quotient に対応するスロットが Occupied か確認&lt;&#x2F;li&gt;
+&lt;li&gt;Occupied でなければ要素は存在しない&lt;&#x2F;li&gt;
+&lt;li&gt;Cluster の先頭から Run を走査&lt;&#x2F;li&gt;
+&lt;li&gt;Run 内を線形探索して Remainder が一致するか確認&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;risaizu-resize&quot;&gt;リサイズ（Resize）&lt;a class=&quot;zola-anchor&quot; href=&quot;#risaizu-resize&quot; aria-label=&quot;Anchor link for: risaizu-resize&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;フィルタの負荷が高くなる、つまりクラスタが大きくなると性能劣化も大きくなる傾向にある&lt;sup class=&quot;footnote-reference&quot;&gt;&lt;a href=&quot;#2&quot;&gt;2&lt;&#x2F;a&gt;&lt;&#x2F;sup&gt;。
+色々やり方はあるが、今回は分かり易さを重視してリサイズ・再挿入を行った。
+他には本書で言及されているように Remainder のビットを Quotient に寄せることでテーブルを実質倍にすることができる。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;mazi-merge&quot;&gt;マージ（Merge）&lt;a class=&quot;zola-anchor&quot; href=&quot;#mazi-merge&quot; aria-label=&quot;Anchor link for: mazi-merge&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;複数の QF を結合する操作は、分散システムでの集約などに有用である。
+両方のフィルタからすべてのキーを収集し、十分な容量を持つ新しいフィルタに再挿入する。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;shi-zhuang-noxiang-xi&quot;&gt;実装の詳細&lt;a class=&quot;zola-anchor&quot; href=&quot;#shi-zhuang-noxiang-xi&quot; aria-label=&quot;Anchor link for: shi-zhuang-noxiang-xi&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;surotutogou-zao-tobitutocao-zuo&quot;&gt;スロット構造とビット操作&lt;a class=&quot;zola-anchor&quot; href=&quot;#surotutogou-zao-tobitutocao-zuo&quot; aria-label=&quot;Anchor link for: surotutogou-zao-tobitutocao-zuo&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;p&gt;各スロットは &lt;code&gt;u64&lt;&#x2F;code&gt; の1ワードで表現され、以下のようにビットを分割している。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#272822;color:#f8f8f2;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;const &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;FLAG_BITS&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;u64 &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;3&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;const &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;FLAG_MASK&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;u64 &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;1 &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;lt;&amp;lt; &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;FLAG_BITS&lt;&#x2F;span&gt;&lt;span&gt;) &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;- &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;1&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;const &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;FLAG_OCCUPIED&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;u64 &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;1 &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;lt;&amp;lt; &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;0&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;const &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;FLAG_CONTINUED&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;u64 &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;1 &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;lt;&amp;lt; &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;1&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;const &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;FLAG_SHIFTED&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;u64 &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;1 &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;lt;&amp;lt; &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;2&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;struct &lt;&#x2F;span&gt;&lt;span&gt;Slot {
+&lt;&#x2F;span&gt;&lt;span&gt;    data: &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;u64&lt;&#x2F;span&gt;&lt;span&gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;下位3ビットがフラグ、残りが Remainder となる。&lt;&#x2F;p&gt;
+&lt;pre style=&quot;background-color:#272822;color:#f8f8f2;&quot;&gt;&lt;code&gt;&lt;span&gt;[Remainder (61 bits)][Shifted][Continued][Occupied]
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;フラグの取得・設定は以下のように実装される。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#272822;color:#f8f8f2;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;impl &lt;&#x2F;span&gt;&lt;span&gt;Slot {
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#a6e22e;&quot;&gt;remainder&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;) -&amp;gt; &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;u64 &lt;&#x2F;span&gt;&lt;span&gt;{
+&lt;&#x2F;span&gt;&lt;span&gt;        self.data &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;gt;&amp;gt; &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;FLAG_BITS
+&lt;&#x2F;span&gt;&lt;span&gt;    }
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#a6e22e;&quot;&gt;set_remainder&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;amp;mut &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;, &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;remainder&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;u64&lt;&#x2F;span&gt;&lt;span&gt;) {
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;let&lt;&#x2F;span&gt;&lt;span&gt; flags &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span&gt;self.data &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;amp; &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;FLAG_MASK&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;span&gt;        self.data &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span&gt;(remainder &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;lt;&amp;lt; &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;FLAG_BITS&lt;&#x2F;span&gt;&lt;span&gt;) &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;|&lt;&#x2F;span&gt;&lt;span&gt; flags;
+&lt;&#x2F;span&gt;&lt;span&gt;    }
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#a6e22e;&quot;&gt;is_occupied&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;) -&amp;gt; &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;bool &lt;&#x2F;span&gt;&lt;span&gt;{
+&lt;&#x2F;span&gt;&lt;span&gt;        (self.data &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;amp; &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;FLAG_OCCUPIED&lt;&#x2F;span&gt;&lt;span&gt;) &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;!= &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;0
+&lt;&#x2F;span&gt;&lt;span&gt;    }
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#a6e22e;&quot;&gt;set_occupied&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;amp;mut &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;, &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;value&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;bool&lt;&#x2F;span&gt;&lt;span&gt;) {
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;if&lt;&#x2F;span&gt;&lt;span&gt; value {
+&lt;&#x2F;span&gt;&lt;span&gt;            self.data &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;|= &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;FLAG_OCCUPIED&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;span&gt;        } &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;else &lt;&#x2F;span&gt;&lt;span&gt;{
+&lt;&#x2F;span&gt;&lt;span&gt;            self.data &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;amp;= !&lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;FLAG_OCCUPIED&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;span&gt;        }
+&lt;&#x2F;span&gt;&lt;span&gt;    }
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;cha-ru-chu-li-noxiang-xi&quot;&gt;挿入処理の詳細&lt;a class=&quot;zola-anchor&quot; href=&quot;#cha-ru-chu-li-noxiang-xi&quot; aria-label=&quot;Anchor link for: cha-ru-chu-li-noxiang-xi&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;kong-nosurotutohenocha-ru&quot;&gt;空のスロットへの挿入&lt;a class=&quot;zola-anchor&quot; href=&quot;#kong-nosurotutohenocha-ru&quot; aria-label=&quot;Anchor link for: kong-nosurotutohenocha-ru&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;最もシンプルなケースは、Quotient のスロットが空の場合である。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#272822;color:#f8f8f2;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;if &lt;&#x2F;span&gt;&lt;span&gt;self.filter[q_idx].&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;is_empty&lt;&#x2F;span&gt;&lt;span&gt;() {
+&lt;&#x2F;span&gt;&lt;span&gt;    self.filter[q_idx].&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;set_remainder&lt;&#x2F;span&gt;&lt;span&gt;(remainder);
+&lt;&#x2F;span&gt;&lt;span&gt;    self.filter[q_idx].&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;set_occupied&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;true&lt;&#x2F;span&gt;&lt;span&gt;);
+&lt;&#x2F;span&gt;&lt;span&gt;    self.entries &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;+= &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;1&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;return&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;run-henocha-ru-tosotobao-chi&quot;&gt;Run への挿入とソート保持&lt;a class=&quot;zola-anchor&quot; href=&quot;#run-henocha-ru-tosotobao-chi&quot; aria-label=&quot;Anchor link for: run-henocha-ru-tosotobao-chi&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;同じ Quotient を持つ要素を挿入する場合、Run 内で Remainder の昇順を保つ必要がある。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#272822;color:#f8f8f2;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;let&lt;&#x2F;span&gt;&lt;span&gt; run_head &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span&gt;self.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;find_run_head&lt;&#x2F;span&gt;&lt;span&gt;(q_idx);
+&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;let &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;mut&lt;&#x2F;span&gt;&lt;span&gt; insert_pos &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt; run_head;
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;if !&lt;&#x2F;span&gt;&lt;span&gt;self.filter[insert_pos].&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;is_empty&lt;&#x2F;span&gt;&lt;span&gt;() &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;amp;&amp;amp; &lt;&#x2F;span&gt;&lt;span&gt;self.filter[insert_pos].&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;remainder&lt;&#x2F;span&gt;&lt;span&gt;() &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span&gt; remainder {
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;loop &lt;&#x2F;span&gt;&lt;span&gt;{
+&lt;&#x2F;span&gt;&lt;span&gt;        insert_pos &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span&gt;self.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;next_index&lt;&#x2F;span&gt;&lt;span&gt;(insert_pos);
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;if !&lt;&#x2F;span&gt;&lt;span&gt;(self.filter[insert_pos].&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;is_continued&lt;&#x2F;span&gt;&lt;span&gt;()
+&lt;&#x2F;span&gt;&lt;span&gt;            &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;amp;&amp;amp; &lt;&#x2F;span&gt;&lt;span&gt;self.filter[insert_pos].&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;remainder&lt;&#x2F;span&gt;&lt;span&gt;() &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span&gt; remainder)
+&lt;&#x2F;span&gt;&lt;span&gt;        {
+&lt;&#x2F;span&gt;&lt;span&gt;            &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;break&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;span&gt;        }
+&lt;&#x2F;span&gt;&lt;span&gt;    }
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;sihutocao-zuo&quot;&gt;シフト操作&lt;a class=&quot;zola-anchor&quot; href=&quot;#sihutocao-zuo&quot; aria-label=&quot;Anchor link for: sihutocao-zuo&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;挿入位置にすでに別の要素がある場合、後続の要素を1つずつシフトして空きスロットを作る。
+スロット列は循環バッファとしている。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#272822;color:#f8f8f2;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;let &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;mut&lt;&#x2F;span&gt;&lt;span&gt; empty_pos &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt; insert_pos;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;while !&lt;&#x2F;span&gt;&lt;span&gt;self.filter[empty_pos].&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;is_empty&lt;&#x2F;span&gt;&lt;span&gt;() {
+&lt;&#x2F;span&gt;&lt;span&gt;    empty_pos &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span&gt;self.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;next_index&lt;&#x2F;span&gt;&lt;span&gt;(empty_pos);
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;let &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;mut&lt;&#x2F;span&gt;&lt;span&gt; curr &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt; empty_pos;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;while&lt;&#x2F;span&gt;&lt;span&gt; curr &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;!=&lt;&#x2F;span&gt;&lt;span&gt; insert_pos {
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;let&lt;&#x2F;span&gt;&lt;span&gt; prev &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span&gt;self.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;prev_index&lt;&#x2F;span&gt;&lt;span&gt;(curr);
+&lt;&#x2F;span&gt;&lt;span&gt;    curr &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt; prev;
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span&gt;self.filter[insert_pos].&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;set_remainder&lt;&#x2F;span&gt;&lt;span&gt;(remainder);
+&lt;&#x2F;span&gt;&lt;span&gt;self.filter[insert_pos].&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;set_shifted&lt;&#x2F;span&gt;&lt;span&gt;(insert_pos &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;!=&lt;&#x2F;span&gt;&lt;span&gt; q_idx);
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;jian-suo-chu-li-noxiang-xi&quot;&gt;検索処理の詳細&lt;a class=&quot;zola-anchor&quot; href=&quot;#jian-suo-chu-li-noxiang-xi&quot; aria-label=&quot;Anchor link for: jian-suo-chu-li-noxiang-xi&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;run-head-notan-suo&quot;&gt;Run Head の探索&lt;a class=&quot;zola-anchor&quot; href=&quot;#run-head-notan-suo&quot; aria-label=&quot;Anchor link for: run-head-notan-suo&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;Run のヘッドを見つけるためにはまず所属する Cluster の先頭からみる必要がある。
+Cluster の先頭は &lt;code&gt;Shifted&lt;&#x2F;code&gt; となっているスロットを戻ることで簡単に見つかる。
+Cluster の先頭が見つかったら、当該 Run の先頭を探索する。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#272822;color:#f8f8f2;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#a6e22e;&quot;&gt;find_run_head&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;, &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;home_idx&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;usize&lt;&#x2F;span&gt;&lt;span&gt;) -&amp;gt; &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;usize &lt;&#x2F;span&gt;&lt;span&gt;{
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;let &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;mut&lt;&#x2F;span&gt;&lt;span&gt; bucket &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt; home_idx;
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;while &lt;&#x2F;span&gt;&lt;span&gt;self.filter[bucket].&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;is_shifted&lt;&#x2F;span&gt;&lt;span&gt;() {
+&lt;&#x2F;span&gt;&lt;span&gt;        bucket &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span&gt;self.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;prev_index&lt;&#x2F;span&gt;&lt;span&gt;(bucket);
+&lt;&#x2F;span&gt;&lt;span&gt;    }
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;let &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;mut&lt;&#x2F;span&gt;&lt;span&gt; run_head &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt; bucket;
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;let &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;mut&lt;&#x2F;span&gt;&lt;span&gt; probe &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt; bucket;
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;while&lt;&#x2F;span&gt;&lt;span&gt; probe &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;!=&lt;&#x2F;span&gt;&lt;span&gt; home_idx {
+&lt;&#x2F;span&gt;&lt;span&gt;        run_head &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span&gt;self.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;next_index&lt;&#x2F;span&gt;&lt;span&gt;(run_head);
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;while &lt;&#x2F;span&gt;&lt;span&gt;self.filter[run_head].&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;is_continued&lt;&#x2F;span&gt;&lt;span&gt;() {
+&lt;&#x2F;span&gt;&lt;span&gt;            run_head &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span&gt;self.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;next_index&lt;&#x2F;span&gt;&lt;span&gt;(run_head);
+&lt;&#x2F;span&gt;&lt;span&gt;        }
+&lt;&#x2F;span&gt;&lt;span&gt;        probe &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span&gt;self.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;next_index&lt;&#x2F;span&gt;&lt;span&gt;(probe);
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;while !&lt;&#x2F;span&gt;&lt;span&gt;self.filter[probe].&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;is_occupied&lt;&#x2F;span&gt;&lt;span&gt;() {
+&lt;&#x2F;span&gt;&lt;span&gt;            probe &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span&gt;self.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;next_index&lt;&#x2F;span&gt;&lt;span&gt;(probe);
+&lt;&#x2F;span&gt;&lt;span&gt;        }
+&lt;&#x2F;span&gt;&lt;span&gt;    }
+&lt;&#x2F;span&gt;&lt;span&gt;    run_head
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;run-nei-noxian-xing-tan-suo&quot;&gt;Run 内の線形探索&lt;a class=&quot;zola-anchor&quot; href=&quot;#run-nei-noxian-xing-tan-suo&quot; aria-label=&quot;Anchor link for: run-nei-noxian-xing-tan-suo&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;Run の先頭が見つかったら、Continued フラグを追いながら一致する Remainder を探す。
+挿入時に昇順にしているので見つかったら途中で探索を打ち切ってよい。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#272822;color:#f8f8f2;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;pub &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#a6e22e;&quot;&gt;lookup&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;, &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;key&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;u64&lt;&#x2F;span&gt;&lt;span&gt;) -&amp;gt; &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;bool &lt;&#x2F;span&gt;&lt;span&gt;{
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;let &lt;&#x2F;span&gt;&lt;span&gt;(quotient, remainder) &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span&gt;self.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;split&lt;&#x2F;span&gt;&lt;span&gt;(key);
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;let&lt;&#x2F;span&gt;&lt;span&gt; q_idx &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt; quotient &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;as &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;usize&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;if !&lt;&#x2F;span&gt;&lt;span&gt;self.filter[q_idx].&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;is_occupied&lt;&#x2F;span&gt;&lt;span&gt;() {
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;return &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;false&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;span&gt;    }
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;let&lt;&#x2F;span&gt;&lt;span&gt; run_head &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span&gt;self.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;find_run_head&lt;&#x2F;span&gt;&lt;span&gt;(q_idx);
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;if &lt;&#x2F;span&gt;&lt;span&gt;self.filter[run_head].&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;remainder&lt;&#x2F;span&gt;&lt;span&gt;() &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;==&lt;&#x2F;span&gt;&lt;span&gt; remainder {
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;return &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;true&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;span&gt;    }
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;let &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;mut&lt;&#x2F;span&gt;&lt;span&gt; idx &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span&gt;self.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;next_index&lt;&#x2F;span&gt;&lt;span&gt;(run_head);
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;while &lt;&#x2F;span&gt;&lt;span&gt;self.filter[idx].&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;is_continued&lt;&#x2F;span&gt;&lt;span&gt;() {
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;if &lt;&#x2F;span&gt;&lt;span&gt;self.filter[idx].&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;remainder&lt;&#x2F;span&gt;&lt;span&gt;() &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;==&lt;&#x2F;span&gt;&lt;span&gt; remainder {
+&lt;&#x2F;span&gt;&lt;span&gt;            &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;return &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;true&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;span&gt;        }
+&lt;&#x2F;span&gt;&lt;span&gt;        idx &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span&gt;self.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;next_index&lt;&#x2F;span&gt;&lt;span&gt;(idx);
+&lt;&#x2F;span&gt;&lt;span&gt;    }
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;false
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;matome&quot;&gt;まとめ&lt;a class=&quot;zola-anchor&quot; href=&quot;#matome&quot; aria-label=&quot;Anchor link for: matome&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h1&gt;
+&lt;p&gt;Bloom Filter のような単純な仕組みかと思いきや、連続アクセスにするための工夫として Quotient や Run、メタデータを導入していて結構複雑な印象だった。
+内容が分かるとそれほど凝った実装にはならないはず...&lt;&#x2F;p&gt;
+&lt;p&gt;Quotient Filter についての研究は直近でも行われており、特に &lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;dl.acm.org&#x2F;doi&#x2F;10.1145&#x2F;3035918.3035963&quot;&gt;CQF&lt;&#x2F;a&gt; や &lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;ieeexplore.ieee.org&#x2F;document&#x2F;8425199&quot;&gt;Quotient Filters: Approximate Membership Queries on the GPU&lt;&#x2F;a&gt; あたりが気になるので時間のある時に読んでみようと思う。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;div class=&quot;footnote-definition&quot; id=&quot;1&quot;&gt;&lt;sup class=&quot;footnote-definition-label&quot;&gt;1&lt;&#x2F;sup&gt;
+&lt;p&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;vldb.org&#x2F;pvldb&#x2F;vol5&#x2F;p1627_michaelabender_vldb2012.pdf&quot;&gt;Don&#x27;t Thrash: How to Cache Your Hash on Flash&lt;&#x2F;a&gt;&lt;&#x2F;p&gt;
+&lt;&#x2F;div&gt;
+&lt;div class=&quot;footnote-definition&quot; id=&quot;2&quot;&gt;&lt;sup class=&quot;footnote-definition-label&quot;&gt;2&lt;&#x2F;sup&gt;
+&lt;p&gt;本書では充填率が 75~80% になると性能が大きく低下すると説明している&lt;&#x2F;p&gt;
+&lt;&#x2F;div&gt;
+</content>
+	</entry>
+	<entry xml:lang="ja">
+		<title>自宅 Kubernetes クラスタに MPI Operator を導入した話</title>
+		<published>2025-10-11T00:00:00+00:00</published>
+		<updated>2025-10-11T00:00:00+00:00</updated>
+		<link href="https://donkomura.github.io/blog/homelab-k8s-mpi-operator/" type="text/html"/>
+		<id>https://donkomura.github.io/blog/homelab-k8s-mpi-operator/</id>
+		<content type="html">&lt;p&gt;自宅で Kubernetes クラスタを運用していて、最近 &lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;kubeflow&#x2F;mpi-operator&quot;&gt;MPI Operator&lt;&#x2F;a&gt; などのコンポーネントを ArgoCD で整備したのでまとめてみる。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;bei-jing&quot;&gt;背景&lt;a class=&quot;zola-anchor&quot; href=&quot;#bei-jing&quot; aria-label=&quot;Anchor link for: bei-jing&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h1&gt;
+&lt;p&gt;自宅で Kubernetes クラスタを運用している理由はいくつかある。&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;クラウドネイティブな技術を実践的に学びたい&lt;&#x2F;li&gt;
+&lt;li&gt;実験的なワークロードを気兼ねなく動かせる環境が欲しい&lt;&#x2F;li&gt;
+&lt;li&gt;作ったり壊したりを気軽にできる計算設備があると嬉しい&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;もともとHPC出身なこともあったのと、近年の Kubernetes での AI ワークロードの解像度が低かったので家の資源を活用しつつ実験できる環境を整えようと考えた。
+そこでとりあえず MPI (Message Passing Interface) を使った並列計算を Kubernetes 上で実行できるようにした。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;mpi-operator-toha&quot;&gt;MPI Operator とは&lt;a class=&quot;zola-anchor&quot; href=&quot;#mpi-operator-toha&quot; aria-label=&quot;Anchor link for: mpi-operator-toha&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;kubeflow&#x2F;mpi-operator&quot;&gt;MPI Operator&lt;&#x2F;a&gt; は Kubernetes 上で MPI ジョブを実行するための Kubernetes Operator である。
+Kubeflow プロジェクトの一部として開発されており、機械学習の分散学習などでよく使われる。&lt;&#x2F;p&gt;
+&lt;p&gt;MPI Operator を使うと以下のようなことが可能になる:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;複数の Pod 間での並列計算の実行&lt;&#x2F;li&gt;
+&lt;li&gt;MPIJob という Custom Resource Definition (CRD) による宣言的なジョブ管理&lt;&#x2F;li&gt;
+&lt;li&gt;Launcher と Worker の自動的なセットアップ&lt;&#x2F;li&gt;
+&lt;li&gt;SSH 鍵の自動管理&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;従来、MPI プログラムを複数のマシンで実行するには SSH の設定やホストファイルの管理など、様々な手作業が必要だった。
+MPI Operator はこれらを自動化し、Kubernetes のリソースとして管理できるようにしてくれる。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;argocd-niyoruguan-li&quot;&gt;ArgoCD による管理&lt;a class=&quot;zola-anchor&quot; href=&quot;#argocd-niyoruguan-li&quot; aria-label=&quot;Anchor link for: argocd-niyoruguan-li&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h1&gt;
+&lt;p&gt;インフラストラクチャをコードで管理する GitOps のアプローチを採用しているため、MPI Operator のデプロイには ArgoCD を使用した。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;argocd-toha&quot;&gt;ArgoCD とは&lt;a class=&quot;zola-anchor&quot; href=&quot;#argocd-toha&quot; aria-label=&quot;Anchor link for: argocd-toha&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;argo-cd.readthedocs.io&#x2F;&quot;&gt;ArgoCD&lt;&#x2F;a&gt; は Kubernetes 向けの宣言的 GitOps 継続的デリバリーツールである。
+Git リポジトリを信頼できる唯一の情報源 (Single Source of Truth) として扱い、リポジトリの状態とクラスタの実際の状態を同期させる。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;depuroinogou-cheng&quot;&gt;デプロイの構成&lt;a class=&quot;zola-anchor&quot; href=&quot;#depuroinogou-cheng&quot; aria-label=&quot;Anchor link for: depuroinogou-cheng&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;p&gt;MPI Operator のデプロイには以下のような構成を採用した。
+ArgoCD Application と Kustomize を組み合わせて管理している:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;yaml&quot; style=&quot;background-color:#272822;color:#f8f8f2;&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;&lt;span style=&quot;color:#75715e;&quot;&gt;# argocd&#x2F;applications&#x2F;mpi-operator.yaml
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;apiVersion&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;argoproj.io&#x2F;v1alpha1
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;kind&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;Application
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;metadata&lt;&#x2F;span&gt;&lt;span&gt;:
+&lt;&#x2F;span&gt;&lt;span&gt;  &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;name&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;mpi-operator
+&lt;&#x2F;span&gt;&lt;span&gt;  &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;namespace&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;argocd
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;spec&lt;&#x2F;span&gt;&lt;span&gt;:
+&lt;&#x2F;span&gt;&lt;span&gt;  &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;project&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;default
+&lt;&#x2F;span&gt;&lt;span&gt;  &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;source&lt;&#x2F;span&gt;&lt;span&gt;:
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;repoURL&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;&amp;lt;repo url&amp;gt;
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;targetRevision&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;main
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;path&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;&amp;lt;path&amp;gt;
+&lt;&#x2F;span&gt;&lt;span&gt;  &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;destination&lt;&#x2F;span&gt;&lt;span&gt;:
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;server&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;https:&#x2F;&#x2F;kubernetes.default.svc
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;namespace&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;mpi-operator
+&lt;&#x2F;span&gt;&lt;span&gt;  &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;syncPolicy&lt;&#x2F;span&gt;&lt;span&gt;:
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;automated&lt;&#x2F;span&gt;&lt;span&gt;:
+&lt;&#x2F;span&gt;&lt;span&gt;      &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;prune&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;true
+&lt;&#x2F;span&gt;&lt;span&gt;      &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;selfHeal&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;true
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;syncOptions&lt;&#x2F;span&gt;&lt;span&gt;:
+&lt;&#x2F;span&gt;&lt;span&gt;      - &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;CreateNamespace=true
+&lt;&#x2F;span&gt;&lt;span&gt;      - &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;ServerSideApply=true
+&lt;&#x2F;span&gt;&lt;span&gt;      - &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;Replace=true
+&lt;&#x2F;span&gt;&lt;span&gt;      - &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;SkipDryRunOnMissingResource=true
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;実際のマニフェストは Kustomize で管理している:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;yaml&quot; style=&quot;background-color:#272822;color:#f8f8f2;&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;&lt;span style=&quot;color:#75715e;&quot;&gt;# argocd&#x2F;apps&#x2F;mpi-operator&#x2F;kustomization.yaml
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;apiVersion&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;kustomize.config.k8s.io&#x2F;v1beta1
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;kind&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;Kustomization
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;resources&lt;&#x2F;span&gt;&lt;span&gt;:
+&lt;&#x2F;span&gt;&lt;span&gt;  - &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;https:&#x2F;&#x2F;raw.githubusercontent.com&#x2F;kubeflow&#x2F;mpi-operator&#x2F;v0.6.0&#x2F;deploy&#x2F;v2beta1&#x2F;mpi-operator.yaml
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;commonAnnotations&lt;&#x2F;span&gt;&lt;span&gt;:
+&lt;&#x2F;span&gt;&lt;span&gt;  &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;argocd.argoproj.io&#x2F;sync-options&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;ServerSideApply=true
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;patches&lt;&#x2F;span&gt;&lt;span&gt;:
+&lt;&#x2F;span&gt;&lt;span&gt;  - &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;target&lt;&#x2F;span&gt;&lt;span&gt;:
+&lt;&#x2F;span&gt;&lt;span&gt;      &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;kind&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;CustomResourceDefinition
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;patch&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;|-
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;      - op: add
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;        path: &#x2F;metadata&#x2F;annotations&#x2F;argocd.argoproj.io~1sync-wave
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;        value: &amp;quot;-1&amp;quot;
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;Sync Wave で CRD を先にデプロイしてからリソースをデプロイするようにすることで CRD に更新があっても sync がこけない。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;ta-nizhui-jia-sitakonponento&quot;&gt;他に追加したコンポーネント&lt;a class=&quot;zola-anchor&quot; href=&quot;#ta-nizhui-jia-sitakonponento&quot; aria-label=&quot;Anchor link for: ta-nizhui-jia-sitakonponento&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;p&gt;MPI Operator と合わせて、クラスタ全体の運用に必要な以下のコンポーネントも ArgoCD で管理している。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;argo-workflows&quot;&gt;Argo Workflows&lt;a class=&quot;zola-anchor&quot; href=&quot;#argo-workflows&quot; aria-label=&quot;Anchor link for: argo-workflows&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;argoproj&#x2F;argo-workflows&quot;&gt;Argo Workflows&lt;&#x2F;a&gt; は Kubernetes ネイティブなワークフローエンジンである。
+複雑な処理を DAG (Directed Acyclic Graph) として定義し、並列実行や条件分岐を含むワークフローを実行できる。&lt;&#x2F;p&gt;
+&lt;p&gt;MPI Operator が単一の並列計算ジョブを実行するのに対し、Argo Workflows は複数のステップから成るパイプラインを構築できる。
+例えば、データの前処理 → MPI ジョブの実行 → 結果の後処理といった一連の流れを一つのワークフローとして定義できる。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;kube-prometheus-stack&quot;&gt;kube-prometheus-stack&lt;a class=&quot;zola-anchor&quot; href=&quot;#kube-prometheus-stack&quot; aria-label=&quot;Anchor link for: kube-prometheus-stack&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;prometheus-community&#x2F;helm-charts&#x2F;tree&#x2F;main&#x2F;charts&#x2F;kube-prometheus-stack&quot;&gt;kube-prometheus-stack&lt;&#x2F;a&gt; は Prometheus Operator、Grafana、Alertmanager などを含む包括的なモニタリングスタックである。&lt;&#x2F;p&gt;
+&lt;p&gt;導入している主な機能:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Prometheus&lt;&#x2F;strong&gt;: メトリクスの収集と保存&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Grafana&lt;&#x2F;strong&gt;: メトリクスの可視化&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Alertmanager&lt;&#x2F;strong&gt;: アラートの管理と通知&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;それぞれに Ingress を設定し、cert-manager と連携して Let&#x27;s Encrypt の証明書を自動取得している。
+MPI ジョブのリソース使用状況やパフォーマンスを追跡するために活用している。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;cert-manager-to-external-dns&quot;&gt;cert-manager と external-dns&lt;a class=&quot;zola-anchor&quot; href=&quot;#cert-manager-to-external-dns&quot; aria-label=&quot;Anchor link for: cert-manager-to-external-dns&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;HTTPS 対応と DNS 管理を自動化するために以下も導入している:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;cert-manager.io&#x2F;&quot;&gt;cert-manager&lt;&#x2F;a&gt;&lt;&#x2F;strong&gt;: Let&#x27;s Encrypt の証明書を自動取得・更新&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;kubernetes-sigs&#x2F;external-dns&quot;&gt;external-dns&lt;&#x2F;a&gt;&lt;&#x2F;strong&gt;: Kubernetes の Ingress リソースに基づいて Cloudflare の DNS レコードを自動管理&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;これらにより、新しいサービスをデプロイする際に手動で証明書を取得したり DNS レコードを設定したりする必要がなくなった。
+ingress-nginx に annotation で cluster-issuer を指定しておくと、SSL 終端してくれるので楽でよい。
+ドメインは Cloudflare で管理している。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;ingress-nginx&quot;&gt;ingress-nginx&lt;a class=&quot;zola-anchor&quot; href=&quot;#ingress-nginx&quot; aria-label=&quot;Anchor link for: ingress-nginx&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;外部からクラスタへのアクセスを管理するために &lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;kubernetes&#x2F;ingress-nginx&quot;&gt;ingress-nginx&lt;&#x2F;a&gt; を使用している。
+Prometheus、Grafana、その他のサービスについて ingress を生やすと external-dns がレコードを生やしてくれるので、ドメインでアクセスできるようになっている。
+Tailscale などの VPN でも繋げば外出時にもアクセスできる。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;matome&quot;&gt;まとめ&lt;a class=&quot;zola-anchor&quot; href=&quot;#matome&quot; aria-label=&quot;Anchor link for: matome&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h1&gt;
+&lt;p&gt;自宅 Kubernetes クラスタに MPI Operator を ArgoCD で導入した経験をまとめた。
+GitOps のアプローチを採用することで、インフラストラクチャの変更を安全かつ追跡可能な形で管理できるようになった。
+また、MPI Operator により Kubernetes 上で分散計算を実行できる環境を整えることができた。
+&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;www.kubeflow.org&#x2F;&quot;&gt;Kubeflow&lt;&#x2F;a&gt; などのモダンな AI ワークフローを構築することも考えたが要件に見合う計算資源は無かったため、今回は断念した。&lt;&#x2F;p&gt;
+&lt;p&gt;雑にバッチジョブも投げられるようになったし、簡単な学習なら回せるようになったので遊んでみることにする。&lt;&#x2F;p&gt;
+</content>
+	</entry>
+	<entry xml:lang="ja">
+		<title>A Solitaire Mystery の全ソリティアをクリアしたので振り返る</title>
+		<published>2025-09-18T00:00:00+00:00</published>
+		<updated>2025-09-18T00:00:00+00:00</updated>
+		<link href="https://donkomura.github.io/blog/a-solitaire-mystery/" type="text/html"/>
+		<id>https://donkomura.github.io/blog/a-solitaire-mystery/</id>
+		<content type="html">&lt;p&gt;時間ができたのでゲームでも嗜むかと思い、Steam を漁っていたところ、「baba is you」で有名な Hempuli 氏の新作ゲームが発売されているところを発見した。&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;store.steampowered.com&#x2F;app&#x2F;3743220&#x2F;A_Solitaire_Mystery&#x2F;&quot;&gt;A Solitaire Mystery&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;私は一時期「baba is you」にはまっておりファンでもあったので、これはやらねばと思い内容も見ずに購入した。
+実際にプレイする際にソリティアゲームであることが分かりちょっとがっかり。
+&lt;strong&gt;「ただのソリティアかぁ...」&lt;&#x2F;strong&gt; かと思えばそんなことはなく、様々な条件やルールが加えられたユニークなソリティアを30個集めたまさに &lt;strong&gt;「へんてこソリティア集」&lt;&#x2F;strong&gt; だった。&lt;&#x2F;p&gt;
+&lt;p&gt;「baba is you」もそうだが、一度始めると手が止まらなくなる程の魅力があった。
+「baba is you」は高難易度で有名な一方、本ゲームはそれ程ではなかった（ただし難しくないとは言ってない）。
+少なくとも何らか手の付けようがあり、ひらめき要素が少ない点からとっつきやすいゲームと言えるだろう。&lt;&#x2F;p&gt;
+&lt;p&gt;２週間の間の隙間時間でちまちまと進めて、30個のソリティアを少なくとも１度クリアしたのと、Steam 上で得られる実績を80％までアンロックして一区切り着いたので、今までにプレイしたソリティアで印象的だったものを紹介する。
+ルールの詳細についてはここでは紹介しない。ゲーム内の説明を参照して頂きたい。&lt;&#x2F;p&gt;
+&lt;figure&gt;
+    &lt;img src=&quot;&amp;#x2F;assets&amp;#x2F;2025-09-15-steam-achievements.png&quot;  alt=&quot;steam achievements&quot;&gt;
+    
+    &lt;figcaption&gt;すべてのソリティアをクリアし、いくつかのアチーブメントを達成した&lt;&#x2F;figcaption&gt;
+    
+&lt;&#x2F;figure&gt;&lt;h2 id=&quot;time-travel-solitaire&quot;&gt;Time Travel Solitaire&lt;a class=&quot;zola-anchor&quot; href=&quot;#time-travel-solitaire&quot; aria-label=&quot;Anchor link for: time-travel-solitaire&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;p&gt;初めに取り組んだソリティアである。
+難易度は星１つとなっているが、実際には星２つぐらいの難易度だった。
+通常のソリティアと異なる点は、画面下部のスロット（タイムマシンと呼ぶ）から「お役立ちカード」を得ることができる点にある。
+この「お役立ちカード」は現在のカード列の一番上に置けるカード（右のスロットが空の場合は１）でありランダムに選択される。
+「お役立ちカード」はゲーム中ずっと使えるわけではなく、タイムマシンに書かれたカウントが１になったときに返さなければならない。
+もし、カウント１を経過しても返せなかった場合はその時点でゲームオーバーとなる。&lt;&#x2F;p&gt;
+&lt;p&gt;このタイムマシンの「カウントが１のときにしか返せない」という制約が厳しく、迂闊にタイムマシンを使うと返却できなかったり、別のタイムマシンを起動してしのぐこと（&lt;strong&gt;まるで借金地獄&lt;&#x2F;strong&gt;）になったりする。
+コツとしてはできるだけタイムマシンを開けずに、かつフリーなスロットを作るようにプレイすると後々困らずに済む。&lt;&#x2F;p&gt;
+&lt;figure&gt;
+    &lt;img src=&quot;&amp;#x2F;assets&amp;#x2F;2025-09-15-time-travel-solitaire.png&quot;  alt=&quot;time travel solitaire&quot;&gt;
+    
+    &lt;figcaption&gt;&lt;&#x2F;figcaption&gt;
+    
+&lt;&#x2F;figure&gt;&lt;h2 id=&quot;ferret-rabbit-carrot&quot;&gt;FERRET RABBIT CARROT&lt;a class=&quot;zola-anchor&quot; href=&quot;#ferret-rabbit-carrot&quot; aria-label=&quot;Anchor link for: ferret-rabbit-carrot&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;p&gt;このゲームは非常にユニークで面白かった。
+中央に川が流れているが、この両岸でカードの受け渡しを相互に行うソリティアである。
+白い馬（？）の乗っている船が寄っている岸のカードを動かすことができ、降順かつ別スートであれば重ねることができる。
+ただし、各岸でそれぞれ「ニンジン」「ウサギ」「フェレット」の数が以下のような関係のいずれかを満たす場合はその時点でゲームオーバーとなる。
+すべてのカードを向こう岸へ渡すことができれば勝利である。&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;2 ferrets &amp;gt;= rabbits &amp;gt; 0&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;2 rabbits &amp;gt;= carrots &amp;gt; 0&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;figure&gt;
+    &lt;img src=&quot;&amp;#x2F;assets&amp;#x2F;2025-09-15-ferret-rabbit-carrot.png&quot;  alt=&quot;ferret rabbit carrot&quot;&gt;
+    
+    &lt;figcaption&gt;&lt;&#x2F;figcaption&gt;
+    
+&lt;&#x2F;figure&gt;
+&lt;p&gt;ゲームに勝つこと自体はそれほど難しくはないが、ある程度降順に並べていくようにしないと、カードの受け渡しが大変になってくるので注意。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;babataire&quot;&gt;BABATAIRE&lt;a class=&quot;zola-anchor&quot; href=&quot;#babataire&quot; aria-label=&quot;Anchor link for: babataire&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;p&gt;ソリティアに「baba is you」要素の加わったゲームである。SE が baba を動かす時のそれで懐かしさを感じた。
+ゲームルールを紹介すると、トランプの４スートの変わりに４キャラを昇順に並べるのだが、「IS」や「ANYSUIT」「OPPOSITE」といたワードを組み合わせることでカードの順番であったり数値、スート、重ね方の制約を変化させることができる。
+やってみると分かるのだが、如何にやりやすいように変化できるかがポイントで、「ON SAME」や「ANY SUIT」を早く作ったり「BABA IS KEKE」などで重ねられるカードを増やしたりすることで有利に進めることができる。&lt;&#x2F;p&gt;
+&lt;figure&gt;
+    &lt;img src=&quot;&amp;#x2F;assets&amp;#x2F;2025-09-15-babataire.png&quot;  alt=&quot;babataire&quot;&gt;
+    
+    &lt;figcaption&gt;&lt;&#x2F;figcaption&gt;
+    
+&lt;&#x2F;figure&gt;&lt;h2 id=&quot;single-card-solitaire&quot;&gt;SINGLE-CARD SOLITAIRE&lt;a class=&quot;zola-anchor&quot; href=&quot;#single-card-solitaire&quot; aria-label=&quot;Anchor link for: single-card-solitaire&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;p&gt;私が攻略終盤で沼っていたゲームを紹介する。
+使うカードは７のダイヤだけで裏表のカードそれぞれを使った「グループ」が存在する。
+「グループ」とは裏か表の同じ種類のカードの塊であって、枚数が１だけ異なる同じ種類のグループと結合することができる。
+例えば、表のカード３枚のグループと表のカード４枚のグループは結合して表のカード７枚のグループとなるが、表のカード１枚のグループと表のカード３枚のグループは結合できない。
+この結合ルールに加えてカードを配る仕組みがあり、左のカウントが表裏０枚になるまで山札からスロットにカードを適当なタイミングで補填できる。&lt;&#x2F;p&gt;
+&lt;p&gt;右側の数字はグループのカードの枚数を示しており、５・７・９・11枚のグループを順番に３スロット分並べると勝利する。&lt;&#x2F;p&gt;
+&lt;figure&gt;
+    &lt;img src=&quot;&amp;#x2F;assets&amp;#x2F;2025-09-15-single-card-solitaire.png&quot;  alt=&quot;babataire&quot;&gt;
+    
+    &lt;figcaption&gt;&lt;&#x2F;figcaption&gt;
+    
+&lt;&#x2F;figure&gt;
+&lt;p&gt;このゲームの難しいところはこのカードを配るタイミングであると感じた。
+最終的には11枚のグループを形成する必要があるため、少なくとも５又は６枚のグループを作っておいた方が良いだろう。
+カードを配る際の裏表や配置はランダムなため、大きなグループを形成できるように配置を考えながらグループを形成する必要がある。
+したがって、初めの方で大きすぎるグループを作ったり結合せずに配られたカードのみでグループを形成しようとするとうまく行かない。
+あえて小さなグループがたくさんできるように、配置を工夫すると良いだろう。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;zui-hou-ni&quot;&gt;最後に&lt;a class=&quot;zola-anchor&quot; href=&quot;#zui-hou-ni&quot; aria-label=&quot;Anchor link for: zui-hou-ni&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;p&gt;面白いのでみんな買おう！&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;store.steampowered.com&#x2F;app&#x2F;3743220&#x2F;A_Solitaire_Mystery&#x2F;&quot;&gt;A Solitaire Mystery&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;figure&gt;
+    &lt;img src=&quot;&amp;#x2F;assets&amp;#x2F;2025-09-15-a-solitaire-mystery.jpg&quot;  alt=&quot;A Solitaire Mystery&quot;&gt;
+    
+    &lt;figcaption&gt;&lt;&#x2F;figcaption&gt;
+    
+&lt;&#x2F;figure&gt;</content>
+	</entry>
+	<entry xml:lang="ja">
+		<title>やってみて分かった「OSS への貢献」</title>
+		<published>2025-06-13T00:00:00+00:00</published>
+		<updated>2025-06-13T00:00:00+00:00</updated>
+		<link href="https://donkomura.github.io/blog/oss-contribution/" type="text/html"/>
+		<id>https://donkomura.github.io/blog/oss-contribution/</id>
+		<content type="html">&lt;p&gt;&lt;a href=&quot;https:&#x2F;&#x2F;donkomura.github.io&#x2F;blog&#x2F;consistent-hashing-in-rust&#x2F;&quot;&gt;以前のブログ&lt;&#x2F;a&gt; で Rust を書いて以降、 Rust に興味を持ち始めました。
+これまでは業務でも趣味でも Rust をあまり書いてこなかったので、初心者と言っても良いでしょう &lt;sup class=&quot;footnote-reference&quot;&gt;&lt;a href=&quot;#1&quot;&gt;1&lt;&#x2F;a&gt;&lt;&#x2F;sup&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;この記事では、そんな Rust 初心者がどのように Rust Linter として有名な rust-clippy に貢献したのかを紹介します。
+実際に貢献してみて分かった「OSS へ貢献する」とは何かについてもまとめます。
+これから Rust に限らず OSS へ貢献したいと少しでも思っている人が動き出すきっかけになると嬉しいです。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;rust-clippy-nigong-xian-siyoutosi-tutakitukake&quot;&gt;rust-clippy に貢献しようと思ったきっかけ&lt;a class=&quot;zola-anchor&quot; href=&quot;#rust-clippy-nigong-xian-siyoutosi-tutakitukake&quot; aria-label=&quot;Anchor link for: rust-clippy-nigong-xian-siyoutosi-tutakitukake&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;rust-lang&#x2F;rust-clippy&quot;&gt;rust-clippy&lt;&#x2F;a&gt; は Rust の linter のひとつで、デファクトスタンダードといってよい程には有名です。
+最近では VS Code でコーディングすることが多い(?) そうなので、VS Code を例に取ると、 rust-analyzer による Quick Fix や下線で変更すべき点を教えてくれることがあると思います。
+これらの裏では rust-clippy が動いていることが多いです。&lt;&#x2F;p&gt;
+&lt;p&gt;私が rust-clippy に貢献しようと思った理由は大きく２つあります。
+ひとつは、もともと Rust に興味があったということ。
+これまで研究室に籠ってストレージを書いていた身なので、Linux に Rust が採用されているなどの低レイヤーで Rust が活躍していることには気づいていて、徐々に興味を持っていました。
+大学では結局触ることなく、それ以降も趣味程度にしか触っていなかったので、きっかけがあれば本格的に触りたいと思っていました。
+また、直近でプログラミング言語や型について勉強にしていたので、その文脈で興味を持ったという経緯もあります。&lt;&#x2F;p&gt;
+&lt;p&gt;理由の二つめは、日本人が rust-clippy に貢献しているところをよくみるようになったからです。
+特に &lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;lapla.dev&#x2F;posts&#x2F;clippy&#x2F;&quot;&gt;lapla さんのブログ&lt;&#x2F;a&gt; で興味を持ちました。
+単純に50以上のパッチを送っていたのもすごいのですが、 rust-clippy のコミュニティが新しい参画者に対してウェルカムな姿勢であったことが伺えたので、Rust という領域に絞ってコミットするのであれば、rust-clippy を選ぼうと思いました。&lt;&#x2F;p&gt;
+&lt;p&gt;一応やり続けるための理由も考えましたが、そこまで意識してません。&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;システムソフトウェアに関わる仕事を将来的にしたい&lt;&#x2F;li&gt;
+&lt;li&gt;インフラのことをやっており、コードを定常的に書かない&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;shi-ji-niyatutakoto&quot;&gt;実際にやったこと&lt;a class=&quot;zola-anchor&quot; href=&quot;#shi-ji-niyatutakoto&quot; aria-label=&quot;Anchor link for: shi-ji-niyatutakoto&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;lapla.dev&#x2F;posts&#x2F;clippy&#x2F;&quot;&gt;lapla さんのブログ&lt;&#x2F;a&gt; に記載されている内容とほぼ同じです。&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;ドキュメントを読む
+&lt;ul&gt;
+&lt;li&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;rust-lang&#x2F;rust-clippy&#x2F;blob&#x2F;master&#x2F;CONTRIBUTING.md&quot;&gt;CONTRIBUTING.md&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;doc.rust-lang.org&#x2F;clippy&#x2F;&quot;&gt;Clippy Book&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;rust-lang.github.io&#x2F;rust-clippy&#x2F;master&#x2F;index.html&quot;&gt;Clippy Lints&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;最近提出された issue をみる
+&lt;ul&gt;
+&lt;li&gt;手を付けられそうなやつとそうでないものを分類する&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;手を付けてみて、実装できそうなら自分をアサインする&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;Issue については &lt;code&gt;good-first-issue&lt;&#x2F;code&gt; ラベルのあるものを一通り見たのですが既にアサインされているものばかりでした。
+なので、以下の点に気を付けながら issue を分類していきました。&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;再現手順があるか&lt;&#x2F;li&gt;
+&lt;li&gt;Label が適切か
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;l-false-positive&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;C-bug&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;l-suggestion-causes-error&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;経験則にはなりますが、自明な false positive は手を付けやすいです。
+再現コードが記載されていて、変更する箇所も明確なことが多いからです。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;code&gt;ICE&lt;&#x2F;code&gt; は緊急性の高い場合もあるためひとまず手を付けないでおきました。
+ちなみに、緊急で修正が必要な場合は Rust 本体にバックポートされるようになっています。&lt;&#x2F;p&gt;
+&lt;p&gt;実際に何をやったかというと、直近の数週間でドキュメントの修正やいつかのバグ修正、 issue のトリアージを行いました。
+細かいバグの内容などはまた別の機会にまとめようと思います。&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;rust-lang&#x2F;rust-clippy&#x2F;issues?q=is%3Aissue%20involves%3Adonkomura&quot;&gt;関わった Issue&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;rust-lang&#x2F;rust-clippy&#x2F;pulls?q=is%3Apr+author%3Adonkomura&quot;&gt;Pull request&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;余談ですが、週間のコミット数で全体４位になることもありました。&lt;&#x2F;p&gt;
+&lt;figure&gt;
+    &lt;img src=&quot;&amp;#x2F;assets&amp;#x2F;2025-06-12-commits.jpg&quot;  alt=&quot;commit ranking&quot;&gt;
+    
+    &lt;figcaption&gt;&lt;&#x2F;figcaption&gt;
+    
+&lt;&#x2F;figure&gt;
+&lt;p&gt;また、 rust-clippy に機能変更が加わると This Week in Rust に掲載されます。
+メリットは特にありませんが、少し嬉しいですね。&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;this-week-in-rust.org&#x2F;blog&#x2F;2025&#x2F;06&#x2F;04&#x2F;this-week-in-rust-602&#x2F;&quot;&gt;This Week in Rust 602&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;gong-xian-noqian-hou-debian-watutakoto&quot;&gt;貢献の前後で変わったこと&lt;a class=&quot;zola-anchor&quot; href=&quot;#gong-xian-noqian-hou-debian-watutakoto&quot; aria-label=&quot;Anchor link for: gong-xian-noqian-hou-debian-watutakoto&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h1&gt;
+&lt;p&gt;rust-clippy に貢献し始めて、今まで持っていた OSS への貢献という概念が大きく変わったと感じました。
+これまでは、OSS への貢献は 高いスキルを持つエンジニアが行うものという印象でしたが、実際に OSS にコミットするようになってからは誰でも気軽に参加できるコミュニティ活動と思うようになりました。
+コミュニティ活動というのは実態通りの表現なのですが、道端のゴミを拾ったり、靴を並べたりとそんな感覚に近いです。
+それと同時に「趣味」という表現もまた適切でしょう。
+私はボルダリングが趣味なのですが、それと同等の感覚で rust-clippy へのコミットも行っています。
+つまりスキルは後付けで良くて（ただし全く無ければ何もできないのでその場合を除く）、
+やろうと思ったか、やる意思が芽生えているのかの方が重要だと思うようになりました。
+靴が散らかっていることに気づくことの方が、綺麗に靴を並べる技術よりもよほど大事なのです。&lt;&#x2F;p&gt;
+&lt;p&gt;実際、リポジトリの issue や実装を見ていると、よくある考慮もれがあったり軽微なバグが多くあったりと、思ったよりも修正箇所が多いことに気づきます。
+そのように思ってからは、靴が散らかった玄関を片づけるかのようにできる issue から取り掛かるようになりました。
+まずは靴を並べるところから始めて、後から綺麗に並べれるようになれば良いという考えが湧いたからです。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;matome&quot;&gt;まとめ&lt;a class=&quot;zola-anchor&quot; href=&quot;#matome&quot; aria-label=&quot;Anchor link for: matome&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h1&gt;
+&lt;p&gt;ポエムチックなことを多く書いてしまったのですが、要するに迷ったらまずはやってみれば良いと思います。
+しくじったと思ったなら、メンテナーなどに相談すれば必ず助けになってくれるはずです。
+もしそうでないのなら、別のコミュニティに移れば良いだけの話です。
+みんな仕事でやっている分けではないので、気軽に一歩を踏み出して良いでしょう。&lt;&#x2F;p&gt;
+&lt;p&gt;しばらくは rust-clippy を触ろうと思います。
+次何をやるかなのですが、未定です。
+Rust コンパイラを触るからそれとも元から興味のあったクラウドネイティブな技術を触るかもしれません。
+将来の自分に運命を委ねます &lt;sup class=&quot;footnote-reference&quot;&gt;&lt;a href=&quot;#2&quot;&gt;2&lt;&#x2F;a&gt;&lt;&#x2F;sup&gt; 。&lt;&#x2F;p&gt;
+&lt;p&gt;ともあれ、
+楽しんで！&lt;&#x2F;p&gt;
+&lt;div class=&quot;footnote-definition&quot; id=&quot;1&quot;&gt;&lt;sup class=&quot;footnote-definition-label&quot;&gt;1&lt;&#x2F;sup&gt;
+&lt;p&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;donkomura?tab=repositories&amp;amp;q=&amp;amp;type=&amp;amp;language=rust&amp;amp;sort=&quot;&gt;試しに触った程度でしか書いてない&lt;&#x2F;a&gt;&lt;&#x2F;p&gt;
+&lt;&#x2F;div&gt;
+&lt;div class=&quot;footnote-definition&quot; id=&quot;2&quot;&gt;&lt;sup class=&quot;footnote-definition-label&quot;&gt;2&lt;&#x2F;sup&gt;
+&lt;p&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;www.nicovideo.jp&#x2F;user&#x2F;123621495&quot;&gt;HAMA&lt;&#x2F;a&gt;&lt;&#x2F;p&gt;
+&lt;&#x2F;div&gt;
+</content>
+	</entry>
+	<entry xml:lang="ja">
+		<title>Consistent Hashing を Rust で実装してみる</title>
+		<published>2025-03-16T00:00:00+00:00</published>
+		<updated>2025-03-16T00:00:00+00:00</updated>
+		<link href="https://donkomura.github.io/blog/consistent-hashing-in-rust/" type="text/html"/>
+		<id>https://donkomura.github.io/blog/consistent-hashing-in-rust/</id>
+		<content type="html">&lt;p&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;book.mynavi.jp&#x2F;ec&#x2F;products&#x2F;detail&#x2F;id=143918&quot;&gt;大規模データセットのためのアルゴリズムとデータ構造&lt;&#x2F;a&gt; という本を読んでいる。
+この本では表題にもあるように大規模データセットで使えるアルゴリズムやデータ構造を紹介している。
+その序盤に、分散システムで良く用いられるコンシステントハッシュが紹介されていた。
+C&#x2F;C++ で実装したことはあるが、練習がてら Rust で実装してみようと思う。&lt;&#x2F;p&gt;
+&lt;p&gt;なお、私の Rust は初心者レベルなので悪しからず。
+&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;doc.rust-jp.rs&#x2F;book-ja&#x2F;&quot;&gt;The Rust Programming Language 日本語版&lt;&#x2F;a&gt; を斜め読みした程度である。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;konsisutentohatusiyutoha&quot;&gt;コンシステントハッシュとは&lt;a class=&quot;zola-anchor&quot; href=&quot;#konsisutentohatusiyutoha&quot; aria-label=&quot;Anchor link for: konsisutentohatusiyutoha&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;Consistent_hashing&quot;&gt;コンシステントハッシュ法(Consistent Hashing)&lt;&#x2F;a&gt; はハッシュテーブルを分散管理するための手法と言えるだろう。
+よく使われるハッシュテーブルは $2^N$ で拡張するような単一のテーブルを意味するが、コンシステントハッシュ法で使われるハッシュテーブルは複数のハッシュテーブルから構成される。&lt;&#x2F;p&gt;
+&lt;p&gt;コンシステントハッシュ法ではハッシュ空間を分割し、これらをノードと呼ばれるサーバーに分割する。
+ハッシュ空間は $0 \sim 2^N - 1$ で構成されることが多い。
+これらのノードはよくハッシュリングとしてリング状に配置される。&lt;&#x2F;p&gt;
+&lt;pre class=&quot;mermaid&quot;&gt;
+  flowchart LR
+    A --&amp;gt; B;
+    B --&amp;gt; C;
+    C --&amp;gt; D;
+    D --&amp;gt; A;
+&lt;&#x2F;pre&gt;
+&lt;p&gt;各サーバーはハッシュ空間に分散されたリソース（例えば、キーバリューの組）を管理する。
+逆に言えば、各リソースはハッシュ空間内に配置されたサーバーのいずれかで管理される。&lt;&#x2F;p&gt;
+&lt;p&gt;コンシステントハッシュの特徴はノードが参加・脱退するときに必要なデータ移動の少なさである。
+剰余でデータ分散を行っていると、除数であるサーバー代数 &lt;code&gt;N&lt;&#x2F;code&gt; が変化するため、サーバーの参加・脱退が発生するたびにほぼすべてのデータの再ハッシュと配置を行う必要がある。
+このような操作はネットワーク負荷を高めるだけでなく、整合性の確保が難しくなったり移行中のパフォーマンス低下を引き起こすなど様々な問題の要因となる。
+したがって、ノードの参加・脱退に伴うデータ移動は最小限にしたい。
+コンシステントハッシング法ではノードの参加・脱退で移動するデータ量を平均 &lt;code&gt;K &#x2F; N&lt;&#x2F;code&gt; (&lt;code&gt;K&lt;&#x2F;code&gt; はキーの数、&lt;code&gt;N&lt;&#x2F;code&gt; はノードの数) に抑えることができる。
+詳細な証明は他の記事に譲るが、 以下のようなイメージである。&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;ノードの参加
+&lt;ul&gt;
+&lt;li&gt;各ノードでは全体の約 &lt;code&gt;1 &#x2F; N&lt;&#x2F;code&gt; のデータを担当する&lt;&#x2F;li&gt;
+&lt;li&gt;別のノードで担当していたデータの一部を追加されるノードに移動する&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;ノードの脱退
+&lt;ul&gt;
+&lt;li&gt;各ノードでは約 &lt;code&gt;K &#x2F; N&lt;&#x2F;code&gt; のデータがある&lt;&#x2F;li&gt;
+&lt;li&gt;隣接するノードへこのデータを引き継ぐ&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;rust-deshi-zhuang&quot;&gt;Rust で実装&lt;a class=&quot;zola-anchor&quot; href=&quot;#rust-deshi-zhuang&quot; aria-label=&quot;Anchor link for: rust-deshi-zhuang&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h1&gt;
+&lt;p&gt;実装はノードをリング状に配置する（以下、Hash ring と呼ぶ）方法が一般的なので今回の実装でもノードをリング状に繋いだ実装を行う。
+ちなみにリング状に配置するのはアルゴリズムを動作させる上では必須ではなく、例えばグラフ構造でハッシュテーブルを分散させることもできる（が、その分実装は複雑になる）。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;hash-ring-noshi-zhuang&quot;&gt;Hash ring の実装&lt;a class=&quot;zola-anchor&quot; href=&quot;#hash-ring-noshi-zhuang&quot; aria-label=&quot;Anchor link for: hash-ring-noshi-zhuang&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;p&gt;まず初めに Hash ring に必要な操作を定義したい。
+Rust では &lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;doc.rust-jp.rs&#x2F;book-ja&#x2F;ch10-02-traits.html&quot;&gt;Trait&lt;&#x2F;a&gt; と呼ばれる仕組みがあり、 Go の &lt;code&gt;interface&lt;&#x2F;code&gt; に似た仕組みであると理解している。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#272822;color:#f8f8f2;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;pub &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;trait &lt;&#x2F;span&gt;&lt;span&gt;HashRingInterface&amp;lt;T: std::hash::Hash&amp;gt; {
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#a6e22e;&quot;&gt;add_node&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;amp;mut &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;, &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;hash&lt;&#x2F;span&gt;&lt;span&gt;: T);
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#a6e22e;&quot;&gt;remove_node&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;, &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;hash&lt;&#x2F;span&gt;&lt;span&gt;: T);
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#a6e22e;&quot;&gt;lookup&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;, &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;hash&lt;&#x2F;span&gt;&lt;span&gt;: T) -&amp;gt; Node;
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#a6e22e;&quot;&gt;add_resource&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;, &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;hash&lt;&#x2F;span&gt;&lt;span&gt;: T);
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#a6e22e;&quot;&gt;move_resource&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;, &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;dest&lt;&#x2F;span&gt;&lt;span&gt;: T, &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;src&lt;&#x2F;span&gt;&lt;span&gt;: T, &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#fd971f;&quot;&gt;is_delete&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;bool&lt;&#x2F;span&gt;&lt;span&gt;);
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;今回は実装を簡易にするためにデータのハッシュ値は事前に分かっていることとする。&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;add_node&lt;&#x2F;code&gt; はノードの追加を行う
+&lt;ul&gt;
+&lt;li&gt;ノードを追加する際に他のノードのデータの管理を委譲される可能性がある&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;remove_node&lt;&#x2F;code&gt; はノードの削除を行う
+&lt;ul&gt;
+&lt;li&gt;削除時には当該ノードが持っているデータを別のノードに移動する操作が含まれる&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;lookup&lt;&#x2F;code&gt; はハッシュ値がどのノードに管理されているかを返す
+&lt;ul&gt;
+&lt;li&gt;与えられるハッシュ値を $H$ として $hash(N_{i}) \le H &amp;lt; hash(N_{i-1})$ を満たすノード $N_{i}$ を返す&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;add_resource&lt;&#x2F;code&gt; はデータを追加する
+&lt;ul&gt;
+&lt;li&gt;実装を簡易にするためにハッシュ値をデータとしている&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;move_resource&lt;&#x2F;code&gt; は &lt;code&gt;src&lt;&#x2F;code&gt; から &lt;code&gt;dest&lt;&#x2F;code&gt; へデータを移動させる
+&lt;ul&gt;
+&lt;li&gt;移動の対象となるデータが hash ring 上で &lt;code&gt;dest&lt;&#x2F;code&gt; に近ければ移動させる&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;is_delete&lt;&#x2F;code&gt; フラグが立っている場合は近さに関係なく &lt;code&gt;src&lt;&#x2F;code&gt; のデータをすべて移動させる&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;node-hashring&quot;&gt;Node, HashRing&lt;a class=&quot;zola-anchor&quot; href=&quot;#node-hashring&quot; aria-label=&quot;Anchor link for: node-hashring&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;ノードの実装は以下の通りである。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#272822;color:#f8f8f2;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;pub &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;struct &lt;&#x2F;span&gt;&lt;span&gt;Node&amp;lt;T&amp;gt; {
+&lt;&#x2F;span&gt;&lt;span&gt;    value: T,
+&lt;&#x2F;span&gt;&lt;span&gt;    resource: HashMap&amp;lt;T, T&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;    prev: &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;Option&lt;&#x2F;span&gt;&lt;span&gt;&amp;lt;Arc&amp;lt;Mutex&amp;lt;Node&amp;lt;T&amp;gt;&amp;gt;&amp;gt;&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;    next: &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;Option&lt;&#x2F;span&gt;&lt;span&gt;&amp;lt;Arc&amp;lt;Mutex&amp;lt;Node&amp;lt;T&amp;gt;&amp;gt;&amp;gt;&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;実装時に、&lt;code&gt;Node&lt;&#x2F;code&gt; の参照の取り扱いに困った。
+他の言語で実装する際にはあまり気にしてこなかった所有権を考慮する必要があった。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;code&gt;Arc&lt;&#x2F;code&gt; はスレッドセーフな参照カウンタ付きのスマートポインタである。
+同様のスマートポインタとして &lt;code&gt;Rc&lt;&#x2F;code&gt; や &lt;code&gt;RefCell&lt;&#x2F;code&gt; がある。
+マルチスレッド時に有効なスマートポインタという認識であるが、共有可能なスマートポインターを利用したかったので &lt;code&gt;Arc&lt;&#x2F;code&gt; を使っている
+（後から分かったことだが、シングルスレッドであれば &lt;code&gt;Rc&lt;&#x2F;code&gt; で十分だ。ただ、特別 &lt;code&gt;Rc&lt;&#x2F;code&gt; する理由もなかったので &lt;code&gt;Arc&lt;&#x2F;code&gt; を使う）。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;code&gt;Arc&lt;&#x2F;code&gt; はデータ競合を防ぐための仕組みであって、実際にデータにアクセスして内容を変更するためには別の仕組みが必要だ。
+&lt;code&gt;Mutex&lt;&#x2F;code&gt; はそのための機能を提供していて、一般に Mutex と呼ばれる機構と同様の仕組みを提供しながら、データアクセスを可能にする。
+例えば、ノードの追加を行う際には以下のようにノードの向き先を変更している。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#272822;color:#f8f8f2;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;let &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;mut&lt;&#x2F;span&gt;&lt;span&gt; new_node_mut &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt; new_node.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;try_lock&lt;&#x2F;span&gt;&lt;span&gt;().&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;unwrap&lt;&#x2F;span&gt;&lt;span&gt;(); &lt;&#x2F;span&gt;&lt;span style=&quot;color:#75715e;&quot;&gt;&#x2F;&#x2F; 挿入するノードをロック、データ操作が可能になる
+&lt;&#x2F;span&gt;&lt;span&gt;new_node_mut.prev &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;Some&lt;&#x2F;span&gt;&lt;span&gt;(Arc::clone(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span&gt;prev_node_ref)); &lt;&#x2F;span&gt;&lt;span style=&quot;color:#75715e;&quot;&gt;&#x2F;&#x2F; 前方向のリンクを変更する
+&lt;&#x2F;span&gt;&lt;span&gt;new_node_mut.next &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;Some&lt;&#x2F;span&gt;&lt;span&gt;(Arc::clone(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span&gt;target)); &lt;&#x2F;span&gt;&lt;span style=&quot;color:#75715e;&quot;&gt;&#x2F;&#x2F; 後ろ方向のリンクを変更する
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;テストコードを含めた他の実装は &lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;donkomura&#x2F;hash_bench&#x2F;blob&#x2F;main&#x2F;src&#x2F;hash_ring.rs&quot;&gt;GitHub リポジトリ&lt;&#x2F;a&gt; にアップロードしている。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;ekosisutemu&quot;&gt;エコシステム&lt;a class=&quot;zola-anchor&quot; href=&quot;#ekosisutemu&quot; aria-label=&quot;Anchor link for: ekosisutemu&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;p&gt;Rust を書いていてかなり良いと思ったのは充実したエコシステムである。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;test&quot;&gt;Test&lt;a class=&quot;zola-anchor&quot; href=&quot;#test&quot; aria-label=&quot;Anchor link for: test&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;テストを書きながら開発するのに向いていると感じた。
+テストは単純に関数を書けば良いので初学者が躓くであろうテストパッケージのための準備などは不要である。
+実行も &lt;code&gt;cargo test&lt;&#x2F;code&gt; だけなので分かりやすい。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#272822;color:#f8f8f2;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#a6e22e;&quot;&gt;distance_in_ring&lt;&#x2F;span&gt;&lt;span&gt;() {
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;font-style:italic;color:#66d9ef;&quot;&gt;let&lt;&#x2F;span&gt;&lt;span&gt; h &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;= &lt;&#x2F;span&gt;&lt;span&gt;HashRing::new(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;5&lt;&#x2F;span&gt;&lt;span&gt;);
+&lt;&#x2F;span&gt;&lt;span&gt;    assert_eq!(h.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;distance&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;0&lt;&#x2F;span&gt;&lt;span&gt;, &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;5&lt;&#x2F;span&gt;&lt;span&gt;), &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;5&lt;&#x2F;span&gt;&lt;span&gt;);
+&lt;&#x2F;span&gt;&lt;span&gt;    assert_eq!(h.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;distance&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;29&lt;&#x2F;span&gt;&lt;span&gt;, &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;12&lt;&#x2F;span&gt;&lt;span&gt;), &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;15&lt;&#x2F;span&gt;&lt;span&gt;);
+&lt;&#x2F;span&gt;&lt;span&gt;    assert_eq!(h.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#66d9ef;&quot;&gt;distance&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;5&lt;&#x2F;span&gt;&lt;span&gt;, &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;29&lt;&#x2F;span&gt;&lt;span&gt;), &lt;&#x2F;span&gt;&lt;span style=&quot;color:#ae81ff;&quot;&gt;24&lt;&#x2F;span&gt;&lt;span&gt;);
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;ci&quot;&gt;CI&lt;a class=&quot;zola-anchor&quot; href=&quot;#ci&quot; aria-label=&quot;Anchor link for: ci&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;ついでに GitHub Actions で CI パイプラインを構築した。
+躓くところは特になかった。
+付け加えるならビルドやテストが速くて、別言語・フレームワークとの差を感じた。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;yaml&quot; style=&quot;background-color:#272822;color:#f8f8f2;&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;jobs&lt;&#x2F;span&gt;&lt;span&gt;:
+&lt;&#x2F;span&gt;&lt;span&gt;  &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;build&lt;&#x2F;span&gt;&lt;span&gt;:
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;strategy&lt;&#x2F;span&gt;&lt;span&gt;:
+&lt;&#x2F;span&gt;&lt;span&gt;      &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;matrix&lt;&#x2F;span&gt;&lt;span&gt;:
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;BUILD_TARGET&lt;&#x2F;span&gt;&lt;span&gt;: [&lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;release&lt;&#x2F;span&gt;&lt;span&gt;, &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;dev&lt;&#x2F;span&gt;&lt;span&gt;]
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;runs-on&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;ubuntu-latest
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;steps&lt;&#x2F;span&gt;&lt;span&gt;:
+&lt;&#x2F;span&gt;&lt;span&gt;      - &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;uses&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;actions&#x2F;checkout@v4
+&lt;&#x2F;span&gt;&lt;span&gt;      - &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;uses&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;Swatinem&#x2F;rust-cache@v2
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;with&lt;&#x2F;span&gt;&lt;span&gt;:
+&lt;&#x2F;span&gt;&lt;span&gt;          &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;key&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;${{ matrix.BUILD_TARGET}}
+&lt;&#x2F;span&gt;&lt;span&gt;      - &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;name&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;Check
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;run&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;cargo check --profile ${{ matrix.BUILD_TARGET }}
+&lt;&#x2F;span&gt;&lt;span&gt;      - &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;name&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;Build with profiling
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;run&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;cargo build --profile ${{ matrix.BUILD_TARGET }}
+&lt;&#x2F;span&gt;&lt;span&gt;      - &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;name&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;Test
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#f92672;&quot;&gt;run&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#e6db74;&quot;&gt;cargo test --profile ${{ matrix.BUILD_TARGET }} --all -- --nocapture
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;benchmark&quot;&gt;Benchmark&lt;a class=&quot;zola-anchor&quot; href=&quot;#benchmark&quot; aria-label=&quot;Anchor link for: benchmark&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;ベンチマークは公式のツールチェーンとして存在しているものはないようなので、サードパーティーのクレートやツールを使う必要がある。
+&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;bheisler&#x2F;criterion.rs&quot;&gt;Criterion&lt;&#x2F;a&gt; というツールがデファクトスタンダードとなっているようなので、こちらを利用している。&lt;&#x2F;p&gt;
+&lt;p&gt;デフォルトでグラフを描画してくれるので、ある程度の結果を眺めるには向いているが実際にデータを使って分析しようとするとやや手間がかかる印象である。
+実際に今回の実装についてベンチマークを取った結果はまだまとめられていない。
+Rust アプリケーションのチューニングのいい練習になると思うので、別の機会に記事としてまとめようと思う。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;gan-xiang&quot;&gt;感想&lt;a class=&quot;zola-anchor&quot; href=&quot;#gan-xiang&quot; aria-label=&quot;Anchor link for: gan-xiang&quot; style=&quot;visibility: hidden;&quot;&gt;&lt;&#x2F;a&gt;
+&lt;&#x2F;h1&gt;
+&lt;p&gt;思い付きでやってみたが、Rust のエコシステムに助けられたおかげで思っていたよりもスムーズに実装できたと感じる。
+エコシステム以外でも支援を受けていたモノがある：AI である。&lt;&#x2F;p&gt;
+&lt;p&gt;前半は自力で実装し、テストや一部のコード実装は GitHub Copilot を使ってみた。
+AI コーディングにはまだ慣れないが、気軽に質問できるのは実装中かなり助かった。
+ChatGPT も併用していたが、やはり Cline 等の AI コーディングツールの方が効率が良いのではないかと思う。
+実際に使ったことがあるのは GitHub Copilot のみなので、質と効率の両面を向上させてくれるものだと期待しつつ、次の実装の機会にでも導入したいと思う
+（GitHub Copilot のみだと解決しきれない部分が度々あった）。&lt;&#x2F;p&gt;
+&lt;p&gt;エコシステムとしては書かなかったがエラーメッセージが分かりやすかったのも良かった。
+大半が所有権や借用の不正についてだった。
+慣れてくると直すべきところの勘もついてくるので、AIに頼り切りになるようなことは無かった。&lt;&#x2F;p&gt;
+&lt;p&gt;ただデバッグは結局 Printf デバッグになっていたので、次回はデバッガをうまく使ったでバッギングを行おうと思う。&lt;&#x2F;p&gt;
+</content>
+	</entry>
+	<entry xml:lang="ja">
+		<title>Blog を作った</title>
+		<published>2025-03-08T00:00:00+00:00</published>
+		<updated>2025-03-08T00:00:00+00:00</updated>
+		<link href="https://donkomura.github.io/blog/create-blog/" type="text/html"/>
+		<id>https://donkomura.github.io/blog/create-blog/</id>
+		<content type="html">&lt;p&gt;先日風邪を引いてしまい、自宅で療養していたわけだが、あまりにもやることがなく暇だったので以前から作ろうと思っていた個人 Blog を作った。&lt;&#x2F;p&gt;
+&lt;p&gt;この Blog では &lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;www.getzola.org&#x2F;&quot;&gt;Zola&lt;&#x2F;a&gt; という Rust 製の静的サイトジェネレーターを使っている。
+機能的には十分で、ビルドは速い。いくつか面倒な部分はあるが細かいことは別の記事にしたい。
+また作成にあたっては以下の記事を参考にした。これら以外にも日本語記事は多かった。&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;yng87.page&#x2F;blog&#x2F;2023&#x2F;zola&#x2F;#mu-ci-wohao-kinawei-zhi-nibiao-shi-sitai&quot;&gt;Rust 製の静的サイトジェネレータ Zola を使ってみる&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;shimopino.github.io&#x2F;blog&#x2F;crafting-tech-blog-with-zola&#x2F;&quot;&gt;Zolaで始める技術ブログ&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;これからは主に技術的なことをつらつらと書いていこうかと思う。
+最近使っていないはてなブログは使い続けるつもりで、こちらの Blog と同じ内容は投稿しないようにする。
+気軽に投稿していきたい。&lt;&#x2F;p&gt;
+</content>
+	</entry>
+</feed>
