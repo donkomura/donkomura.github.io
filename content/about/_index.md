@@ -1,7 +1,6 @@
 +++
 title = "About me"
 description = "About page of donko"
-path = "about"
 template = "prose.html"
 insert_anchor_links = "none"
 
