@@ -13,21 +13,13 @@ comment = false
 reaction = false
 +++
 
-donko と申します。アカウント名は donkooo や donkomura であることが多いです。
+donko と言います。アカウント名は donkooo や donkomura であることが多いです。
 分散システムやストレージ、計算機のハードウェアに興味があります。
-
 大学ではHPC分野でスーパーコンピューターのストレージの研究・開発をやっていました。
 今は Web サービス基盤のSREをやっています。
 
 # Location
 Tokyo, Japan
-
-# Career
-| 時期              | 会社概要（職種）              |
-| ---               | ---                           |
-| 2024/09 -         | ビジネスSNSプラットフォーム (Infra engineer, SRE) |
-| 2023/04 - 2023/08 | 出版・メディア（PublicCloud/Infra engineer）  |
-| 2023/03           | 筑波大学大学院情報理工学位プログラム修了 |
 
 # Interest
 Distributed system / Database / Kuberntes / Observability / SRE
