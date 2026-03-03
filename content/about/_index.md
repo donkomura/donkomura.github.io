@@ -29,18 +29,18 @@ Distributed system / Database / Kuberntes / Observability / SRE
     - 2023/07 - 2025/06
 
 # Awards
-- Best Team Award Bronze
-    - チームメンバーとして受賞
+- Best Team Award Bronze (as a member of Infra Squad) in Wantedly, inc.
 - 筑波大学 情報理工学位プログラムリーダー表彰
 - HPC-AI Advisory Council Announces the 9th Annual APAC RDMA Competition 3rd place
     - [HPC-AI Advisory Council Announces the 9th Annual APAC RDMA Competition Awards](https://www.businesswire.com/news/home/20211112005318/en/HPC-AI-Advisory-Council-Announces-the-9th-Annual-APAC-RDMA-Competition-Awards)
     - [第9回 APAC RDMA Programming Competition において第3位入賞](https://www.coins.tsukuba.ac.jp/2021/211224.php)
 - 情報科学類心青会賞
 
-# Socials
+# Socials / Contacts
 - [GitHub | @donkomura](https://github.com/donkomura/)
 - [X (Twitter) | @donkomura_](https://x.com/donkomura_)
 - [Qiita | @donko_](https://qiita.com/donko_)
+- Email: info [at] donkooo.com
 
 # Identity
 
