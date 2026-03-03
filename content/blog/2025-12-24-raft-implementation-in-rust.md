@@ -20,6 +20,7 @@ display_tags = true
 truncate_summary = false
 featured = false
 reaction = false
+cover = "/assets/cover.png"
 +++
 
 分散システムにおける合意形成アルゴリズムとして知られている Raft を、Rust で実装してみた。この記事では、Rust の型システムとトレイトを活用した設計について紹介する。
