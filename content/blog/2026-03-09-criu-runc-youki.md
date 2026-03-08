@@ -12,8 +12,8 @@ lang = "jp"
 toc = true
 comment = false
 copy = true
-math = true
-mermaid = true
+math = false
+mermaid = false
 outdate_alert = false
 outdate_alert_days = 120
 display_tags = true
@@ -69,7 +69,7 @@ $ docker export $(docker create busybox) | tar -C rootfs -xvf -
   ...
 }
 ```
-Youki のルートディレクトリに戻ってからコンテナを作成・チェックポイントを取得する。チェックポイントは `checkpoint` というディレクトリに保存されるのであらかじめ作っておく。
+Youki のルートディレクトリに戻ってからコンテナを作成・チェックポイントを取得する。チェックポイントはデフォルトで `checkpoint` というディレクトリに保存されるのであらかじめ作っておく。
 ```
 $ sudo ./youki create -b tutorial tutorial_container
 $ sudo ./youki state tutorial_container
