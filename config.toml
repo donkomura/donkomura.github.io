@@ -2,6 +2,9 @@
 base_url = "https://donkomura.github.io"
 default_language = "ja"
 
+title = "donko log"
+description = "donkomura の日常"
+
 theme = "serene"
 
 compile_sass = true
