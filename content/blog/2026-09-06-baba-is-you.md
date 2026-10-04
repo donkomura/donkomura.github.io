@@ -21,7 +21,13 @@ truncate_summary = false
 featured = false
 +++
 
-「Baba Is You」というゲームをご存じだろうか？うまく一言で説明できなさそうなので Steam の説明から引用する。
+**結論: Baba Is You を買え、持っているやつは再開しろ**
+
+<iframe src="https://store.steampowered.com/widget/736260/" frameborder="0" width="646" height="190" style="max-width: 100%;"></iframe>
+
+## Baba Is You って何よ
+
+うまく一言で説明できなさそうなので Steam の説明から引用する。
 
 > 「Baba Is You」はゲーム上で従われるルールがステージ内にある接触可能のブロックとして存在するゲームです。
 > https://store.steampowered.com/app/736260/Baba_Is_You/
