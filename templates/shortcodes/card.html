@@ -1,0 +1,7 @@
+<a class="link-card" href="{{ url | safe }}" style="display: block; margin: 1.25em 0; padding: 12px 16px; border: 1px solid var(--text-pale-color); border-radius: 8px; color: var(--text-color); text-decoration: none; background: var(--primary-pale-color);">
+    <strong style="display: block; color: var(--primary-color);">{{ title }}</strong>
+    {% if description %}
+    <span style="display: block; margin-top: 4px;">{{ description }}</span>
+    {% endif %}
+    <span style="display: block; margin-top: 4px; font-size: 0.85em; color: var(--text-pale-color);">{{ url | replace(from="https://", to="") | safe }}</span>
+</a>
