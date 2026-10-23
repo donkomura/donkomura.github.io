@@ -19,6 +19,7 @@ outdate_alert_days = 120
 display_tags = true
 truncate_summary = false
 featured = false
+cover = "/assets/cover.png"
 +++
 
 **結論: Baba Is You を買え、持っているやつは再開しろ**
